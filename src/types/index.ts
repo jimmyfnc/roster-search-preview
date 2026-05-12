@@ -17,6 +17,7 @@ export interface Personnel {
   height?: string;
   weight?: number;
   year_of_hire?: number;
+  rank_title?: string;
   roster_year?: number;
   is_current?: boolean;
   created_at?: string;
