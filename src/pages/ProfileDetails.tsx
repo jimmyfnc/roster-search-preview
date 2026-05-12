@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { usePersonnelById } from "../hooks/usePersonnel";
-import { getFullName, getTotalCompensation } from "../types";
+import { getFullName, getTotalCompensation, formatHeight } from "../types";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -244,7 +244,7 @@ const ProfileDetails = () => {
                 {person.height && (
                   <div className="border-l-4 border-foreground pl-6 py-2">
                     <span className="text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Height</span>
-                    <p className="text-xl font-bold text-foreground">{person.height}</p>
+                    <p className="text-xl font-bold text-foreground">{formatHeight(person.height)}</p>
                   </div>
                 )}
                 {person.weight && (

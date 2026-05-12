@@ -30,6 +30,19 @@ export const getFullName = (person: Personnel): string => {
   return `${person.first_name} ${person.last_name}`;
 }
 
+// Heights in the source data are stored as 3-digit strings: "511" -> 5'11", "601" -> 6'1".
+// If the value doesn't match that shape, return it unchanged so we don't mangle data we don't recognize.
+export const formatHeight = (height?: string | number | null): string => {
+  if (height == null || height === '') return '';
+  const s = String(height).trim();
+  if (s.includes("'")) return s; // already formatted
+  const m = s.match(/^(\d)(\d{2})$/);
+  if (!m) return s;
+  const inches = parseInt(m[2], 10);
+  if (inches > 11) return s;
+  return `${m[1]}'${inches}"`;
+};
+
 // Helper function to get total compensation
 export const getTotalCompensation = (person: Personnel): number => {
   // Force number conversion and addition
