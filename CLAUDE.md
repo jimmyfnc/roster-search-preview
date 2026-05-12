@@ -68,29 +68,55 @@ This is a React application for searching and displaying public personnel record
 
 ## Environments — CRITICAL
 
-There are **two separate environments** with **two separate databases**:
+There are **two product environments** (preview vs production) and **three DB endpoints**. Confusing them has bitten us before.
 
-| Environment | Host | Database | Deployed code repo |
+| Product env | URL | DB endpoint | Deployed code repo |
 |---|---|---|---|
-| **Production** | https://www.nosecretpolice.net | Railway Postgres (`crossover.proxy.rlwy.net` / `postgres.railway.internal`) | `Guts-Studios/roster-roster-search` |
-| **Preview** | Vercel preview URL | Neon Postgres (`*.neon.tech`) | `jimmyfnc/roster-search-preview` (this repo) |
+| **Production** (live site) | https://www.nosecretpolice.net | **Railway Postgres** (`crossover.proxy.rlwy.net` / `postgres.railway.internal`) | `Guts-Studios/roster-roster-search` |
+| **Preview** (Vercel deployed) | `*-jimmyfncs-projects.vercel.app` | **Neon Postgres — Production branch** (`ep-autumn-pine-aii9iw8c...`) | `jimmyfnc/roster-search-preview` (this repo) |
+| **Local dev** (`vercel dev`, scripts run from this repo) | localhost / scripts | **Neon Postgres — Development branch** (`ep-mute-queen-aiverb3d-pooler...`) | this repo |
 
-**Before running ANY migration or destructive DB script, verify which DB you're pointed at:**
+Yes — the Vercel "Production" *environment* maps to the *Preview* product. Vercel's "Production" just means the main-branch deployment; in our case the main-branch deployment IS the preview. The Neon Vercel integration provisions a separate branch for each Vercel environment (Production / Preview / Development).
+
+### Rule 1: Always verify the DB target before destructive operations
 
 ```powershell
 node scripts/check-target-db.cjs
 ```
 
-That prints the host and identifies the provider as `Neon (preview)` or `Railway (PRODUCTION)`.
+Prints the host and labels it `Neon (preview)` or `Railway (PRODUCTION)`. Eyeball the host before running anything that writes.
 
-### Connecting to the preview DB (Neon)
+### Rule 2: Local scripts target the Neon **Development** branch by default
 
-1. `vercel link` to associate the repo with the Vercel project (one-time setup).
-2. `vercel env pull` writes a `.env.local` file with `DATABASE_URL` pointing at Neon.
-3. All migration scripts call `require('dotenv').config()` so they auto-pick up the file.
+After `vercel env pull` (no flags), `.env` contains the Development branch URL. Migration scripts call `require('dotenv').config()` and pick it up. So:
 
-### Connecting to the production DB (Railway)
+```powershell
+node scripts/migrate-2025-2026-data.cjs   # hits Neon DEV branch
+```
 
-Only do this when intentionally migrating production. Use `railway run --service Postgres node scripts/...` which injects `DATABASE_PUBLIC_URL` from the Railway Postgres service.
+This is safe for iteration — it does NOT affect what your friend sees on the Vercel preview URL.
 
-**Rule of thumb**: if the migration is exploratory or in-progress, target the Neon preview. Only push to Railway production after the preview has been validated and the client has approved.
+### Rule 3: To affect what the deployed Vercel preview shows, target the Neon **Production** branch explicitly
+
+The deployed Vercel app at `*-jimmyfncs-projects.vercel.app` reads from the Vercel Production env, which is the Neon Production branch. To migrate THAT branch, use the wrapper script:
+
+```powershell
+.\scripts\run-against-vercel-prod.ps1 scripts/migrate-2025-2026-data.cjs
+.\scripts\run-against-vercel-prod.ps1 scripts/snapshot-state.cjs
+.\scripts\run-against-vercel-prod.ps1 scripts/verify-migration.cjs
+.\scripts\run-against-vercel-prod.ps1 scripts/run-rollback.cjs
+```
+
+The wrapper pulls the Production env vars from Vercel, overrides `DATABASE_URL` inline, runs the requested script, then cleans up.
+
+### Rule 4: Only touch Railway production after preview validation
+
+To migrate the live Railway DB (after the Vercel preview is reviewed and approved):
+
+```powershell
+railway run --service Postgres node scripts/migrate-2025-2026-data.cjs
+```
+
+`railway run` injects `DATABASE_PUBLIC_URL` from the Railway Postgres service. Confirm the host with `check-target-db.cjs` first — it should label as `Railway (PRODUCTION)`.
+
+**Heuristic**: iterate on Dev Neon → migrate Prod Neon → eyeball the Vercel preview with your friend → only then run against Railway production.
