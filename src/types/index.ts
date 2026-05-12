@@ -19,6 +19,7 @@ export interface Personnel {
   year_of_hire?: number;
   rank_title?: string;
   roster_year?: number;
+  payroll_year?: number;
   is_current?: boolean;
   created_at?: string;
   updated_at?: string;

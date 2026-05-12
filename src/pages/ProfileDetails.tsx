@@ -259,7 +259,11 @@ const ProfileDetails = () => {
 
           {/* Data Disclaimer */}
           <div className="px-8 py-4 bg-secondary border-t border-border">
-            <p className="text-sm text-muted-foreground text-center">Disclaimer: Payroll data is current as of late 2024.</p>
+            <p className="text-sm text-muted-foreground text-center">
+              {person.payroll_year
+                ? `Disclaimer: Payroll data is current as of ${person.payroll_year}.`
+                : 'Disclaimer: No payroll data available for this record.'}
+            </p>
           </div>
           
           {/* Enhanced Compensation Section */}

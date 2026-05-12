@@ -44,7 +44,7 @@ const About = () => {
 
               <h2 className="text-2xl font-bold mb-4 text-inadvertent-yellow">Is this up to date?</h2>
               <p className="mb-6">
-                Roster data for the SAPD is current as of 2026. Payroll data is current as of 2024, with updated payroll expected in April 2026. The database is entirely based on the city's data so if you see that something is wrong, it is because updated data has not been released by the city.
+                Roster data for the SAPD is current as of 2026. Payroll data varies per record, ranging from 2024 to 2025, depending on the most recent year for which the city has released that personnel's compensation data. Each profile shows the specific year its payroll reflects. The database is entirely based on the city's data so if you see that something is wrong, it is because updated data has not been released by the city.
               </p>
 
               <h2 className="text-2xl font-bold mb-4 text-inadvertent-yellow">How can I support this project?</h2>
