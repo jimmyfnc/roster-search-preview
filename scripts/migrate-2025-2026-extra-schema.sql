@@ -15,11 +15,22 @@ ALTER TABLE personnel ADD COLUMN IF NOT EXISTS roster_year INTEGER;
 ALTER TABLE personnel ADD COLUMN IF NOT EXISTS is_current BOOLEAN DEFAULT true;
 
 -- Phase 3: Rank title (more granular than the existing classification column)
+-- and payroll_year (tracks which year the payroll fields actually come from,
+-- since 2026 records carry payroll forward from prior years).
 ALTER TABLE personnel ADD COLUMN IF NOT EXISTS rank_title TEXT;
+ALTER TABLE personnel ADD COLUMN IF NOT EXISTS payroll_year INTEGER;
 
 -- Phase 4: Backfill existing records as 2024 historical baseline.
--- Anything still untagged is part of the original 2024 SAPD roster import.
-UPDATE personnel SET roster_year = 2024, is_current = false WHERE roster_year IS NULL;
+-- Anything still untagged is part of the original 2024 SAPD roster import; its
+-- payroll is from 2024.
+UPDATE personnel
+   SET roster_year = 2024,
+       is_current = false,
+       payroll_year = COALESCE(payroll_year, 2024)
+ WHERE roster_year IS NULL;
+
+-- Also backfill payroll_year on already-tagged 2024 records (idempotent for re-runs).
+UPDATE personnel SET payroll_year = 2024 WHERE roster_year = 2024 AND payroll_year IS NULL;
 
 -- Phase 5: Swap the single-column UNIQUE for a composite that allows the same badge
 -- to exist in multiple roster years.

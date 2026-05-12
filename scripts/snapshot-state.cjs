@@ -1,4 +1,5 @@
 // One-off DB state snapshot. Safe to run anytime.
+require('dotenv').config();
 const { Pool } = require('pg');
 const url = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL || process.env.VITE_DATABASE_URL;
 if (!url) { console.error('No DB URL'); process.exit(1); }

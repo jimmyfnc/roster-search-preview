@@ -65,3 +65,32 @@ This is a React application for searching and displaying public personnel record
 - Development server runs on port 8080
 - Platform integration for deployment
 - Environment variables for Railway PostgreSQL connection (`VITE_DATABASE_URL`)
+
+## Environments — CRITICAL
+
+There are **two separate environments** with **two separate databases**:
+
+| Environment | Host | Database | Deployed code repo |
+|---|---|---|---|
+| **Production** | https://www.nosecretpolice.net | Railway Postgres (`crossover.proxy.rlwy.net` / `postgres.railway.internal`) | `Guts-Studios/roster-roster-search` |
+| **Preview** | Vercel preview URL | Neon Postgres (`*.neon.tech`) | `jimmyfnc/roster-search-preview` (this repo) |
+
+**Before running ANY migration or destructive DB script, verify which DB you're pointed at:**
+
+```powershell
+node scripts/check-target-db.cjs
+```
+
+That prints the host and identifies the provider as `Neon (preview)` or `Railway (PRODUCTION)`.
+
+### Connecting to the preview DB (Neon)
+
+1. `vercel link` to associate the repo with the Vercel project (one-time setup).
+2. `vercel env pull` writes a `.env.local` file with `DATABASE_URL` pointing at Neon.
+3. All migration scripts call `require('dotenv').config()` so they auto-pick up the file.
+
+### Connecting to the production DB (Railway)
+
+Only do this when intentionally migrating production. Use `railway run --service Postgres node scripts/...` which injects `DATABASE_PUBLIC_URL` from the Railway Postgres service.
+
+**Rule of thumb**: if the migration is exploratory or in-progress, target the Neon preview. Only push to Railway production after the preview has been validated and the client has approved.

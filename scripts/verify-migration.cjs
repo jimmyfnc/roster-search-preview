@@ -1,4 +1,5 @@
 // Post-migration spot checks. Read-only.
+require('dotenv').config();
 const { Pool } = require('pg');
 const url = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL || process.env.VITE_DATABASE_URL;
 const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
