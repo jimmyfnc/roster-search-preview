@@ -93,17 +93,24 @@ Yes — the Vercel "Production" *environment* maps to the *Preview* product. Ver
 node scripts/check-target-db.cjs
 ```
 
-Prints the host and labels it `Neon (preview)` or `Railway (PRODUCTION)`. Eyeball the host before running anything that writes.
+Prints the host and one of these labels:
+- `Neon (preview DEV branch — safe iteration)`
+- `Neon (preview PROD branch — affects deployed Vercel preview)`
+- `Neon (unknown branch — INVESTIGATE before writing)`
+- `Railway (PRODUCTION live site)`
+
+Eyeball the label before running anything that writes.
 
 ### Rule 2: Local scripts target the Neon **Development** branch by default
 
 After `vercel env pull` (no flags), `.env` contains the Development branch URL. Migration scripts call `require('dotenv').config()` and pick it up. So:
 
 ```powershell
-node scripts/migrate-2025-2026-data.cjs   # hits Neon DEV branch
+node scripts/migrate-2025-2026-data.cjs           # hits Neon DEV branch
+DRY_RUN=1 node scripts/migrate-2025-2026-data.cjs # preview-only; runs in a transaction that always rolls back
 ```
 
-This is safe for iteration — it does NOT affect what your friend sees on the Vercel preview URL.
+This is safe for iteration — it does NOT affect what your friend sees on the Vercel preview URL. Use `DRY_RUN=1` (or `--dry-run`) before any real run to confirm the summary matches expectations.
 
 ### Rule 3: To affect what the deployed Vercel preview shows, target the Neon **Production** branch explicitly
 

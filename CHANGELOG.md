@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.0.0] - 2026-05-13
+
+Note: the 4.0.0 entry below describes a migration that was deployed, then rolled
+back before this branch ever shipped. The 5.0.0 changes are the actual deployed
+preview migration; the 4.0.0 scripts (`migrate-2026-schema.sql`,
+`migrate-2026-roster.cjs`, `rollback-2026.sql`) are superseded.
+
+### Added
+- **Unified 2025/2026 Migration**: New `scripts/migrate-2025-2026-data.cjs` takes
+  the pre-2026 baseline to a three-year versioned dataset (2024 + 2025 + 2026)
+  in one transaction. 1004 total rows, 447 `is_current=true` under a
+  latest-record-per-person rule.
+- **2025 Payroll Data**: Imported final 2025 payroll numbers (336 records),
+  joined to 2024 roster by name with middle-initial-stripping; preferred over
+  2024 carry-forward when populating 2026 records' payroll fields.
+- **2026 January Roster**: Imported `NSP_2026_SAPD_260114_ROSTER.xlsx` (350
+  records) including 31 redacted entries; 310 embedded photos extracted to
+  WebP via `sharp`. Includes `rank_title` (e.g. "Police Officer (Detective)")
+  in addition to the existing `classification` field.
+- **`payroll_year` column**: Tracks which year's payroll data each record
+  reflects. Surfaced on profile pages as a per-record disclaimer that reads
+  "Payroll data is current as of {year}" or "No payroll data available for
+  this record."
+- **DRY_RUN flag**: `DRY_RUN=1` (or `--dry-run`) on the migration script runs
+  the full transaction and then rolls back — safe preview before a real run.
+- **Cross-platform XLSX parsing**: `xlsx-helper.cjs` now uses `adm-zip`
+  instead of `powershell.exe`. Works on macOS/Linux/WSL.
+- **DB target safety**: `scripts/check-target-db.cjs` distinguishes Neon Dev
+  branch (safe iteration) from Neon Prod branch (affects deployed preview)
+  before any destructive run.
+- **Vercel Production wrapper**: `scripts/run-against-vercel-prod.ps1` pulls
+  the Production env from Vercel CLI, sets `DATABASE_URL` inline, runs any
+  script against the Neon Prod branch, then cleans up. Stores the temp env
+  file in the OS temp dir (not the repo) so an interrupted run can't leave
+  credentials in the git tree.
+- **Verification invariants**: `scripts/verify-migration.cjs` asserts two SQL
+  invariants — for every named person, `is_current=true` is on the row with
+  the highest `roster_year`; and `payroll_year` is set if and only if at
+  least one pay field is non-null.
+
+### Changed
+- **`is_current` rule**: One `is_current=true` row per unique stripped name
+  (latest year wins) rather than one full year being current. The site
+  surfaces ~447 records — the most current record for each person across all
+  three years.
+- **`is_current` column default**: now `false` (was `true`) so the schema
+  migration can't accidentally leave everyone marked current if the data
+  migration doesn't run.
+- **Phase B classification normalization**: 2025 records use `baseRank()` to
+  strip parenthesized qualifiers like "(Temp Up)" / "(RM)" before insert,
+  matching 2024 conventions.
+- **Photo-resolution effect** (ProfileCard, ProfileDetails): probes all URL
+  variations in parallel via `Promise.any()` with cancellation cleanup,
+  replacing the sequential per-variation waterfall.
+- **About page copy**: payroll currency is described per-record (range
+  2024–2025) rather than a single static year.
+- **Profile error copy**: replaced misleading "Access Denied — You need to
+  be authenticated" with neutral "Unable to load record" (this is a public
+  tool with no auth wall).
+- **Height display**: stored as 3-digit strings ("511", "601") and formatted
+  to `5'11"`, `6'1"` at render time.
+- **`.gitignore`**: hardened with `.env`, `.env.local`, `.env.production`,
+  `.env*.local`, `.env.vercel*`, `.vercel`, and `.claude/`. Untracked the
+  previously-tracked `.claude/settings.local.json`.
+
+### Fixed
+- **SPA reload 404**: `vercel.json` now adds a filesystem handler + fallback
+  to `index.html` so React Router routes survive a hard reload at any URL.
+- **Migration idempotency**: Phase A wipes pre-existing 2025/2026 rows before
+  re-insert; the script is safe to re-run against any prior state.
+- **Batched inserts**: ~700 sequential `INSERT` round-trips collapsed to ~7
+  multi-row inserts (~10s wall-clock savings on Neon).
+- **Zip-slip guard**: `readImageAnchors` validates that resolved image paths
+  stay within the extracted directory before `sharp` opens them.
+- **PowerShell wrapper**: validates `$LASTEXITCODE` after `vercel env pull`
+  instead of suppressing output; constrains script path to `scripts/`
+  prefix.
+- **Phase D partition key**: matches JS `norm()`/`stripMiddle()` exactly
+  (collapse internal whitespace) so name-key fragmentation can't cause
+  duplicate `is_current` rows.
+
+### Technical
+- New partial expression index `idx_personnel_name_stripped` matching the
+  Phase D `PARTITION BY` for scale.
+- `package.json`: added `adm-zip` runtime dependency.
+- Source data files added: `NSP_2026_SAPD_260114_ROSTER.xlsx`,
+  `NSP_SAPD_2025_PAYROLL - SAPD_2025_PAYROLL.csv`. The older
+  `NSP_UPDATE_SAPD_202603 - MASTER.csv` is preserved for archival only and is
+  NOT consumed by the current migration.
+
 ## [4.0.0] - 2026-02-23
 
 ### Added

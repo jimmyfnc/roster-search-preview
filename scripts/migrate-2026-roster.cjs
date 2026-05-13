@@ -1,3 +1,16 @@
+// =============================================================================
+// SUPERSEDED — DO NOT RUN.
+//
+// This script implements the rolled-back 4.0.0 migration plan, which consumed
+// the preliminary `NSP_UPDATE_SAPD_202603 - MASTER.csv` source (since marked
+// historical in CLAUDE.md). The currently deployed migration is unified into
+// `scripts/migrate-2025-2026-data.cjs` and uses the January 2026 XLSX + the
+// final 2025 payroll CSV instead.
+//
+// Kept on disk for archival record. See CHANGELOG.md [5.0.0] for the
+// replacement migration and RESTORE-2026.md for the current operational
+// runbook.
+// =============================================================================
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');

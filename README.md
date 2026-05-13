@@ -4,10 +4,15 @@ A React application for searching and displaying public personnel records. Built
 
 ## 🚀 Quick Start
 
+> **Note**: This repo (`jimmyfnc/roster-search-preview`) is the **Vercel preview**
+> deployment, backed by Neon Postgres. The live production site lives in a
+> separate repo (`Guts-Studios/roster-roster-search`) and is backed by Railway
+> Postgres. See [CLAUDE.md](CLAUDE.md) "Environments" for the full topology.
+
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/roster-roster-search.git
-   cd roster-roster-search
+   git clone https://github.com/jimmyfnc/roster-search-preview.git
+   cd roster-search-preview
    ```
 
 2. **Install dependencies**
@@ -16,10 +21,12 @@ A React application for searching and displaying public personnel records. Built
    ```
 
 3. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Railway PostgreSQL connection string
-   ```
+   - Install the Vercel CLI: `npm i -g vercel`
+   - Link the project: `vercel link`
+   - Pull the Neon Dev branch connection string: `vercel env pull`
+   - This writes `.env` (gitignored) with `DATABASE_URL` pointing at the Neon
+     Development branch — safe to run migrations against without affecting
+     the deployed preview.
 
 4. **Start development server**
    ```bash
@@ -33,14 +40,20 @@ A React application for searching and displaying public personnel records. Built
 ### Technology Stack
 - **Frontend**: React 18 + TypeScript + Vite
 - **Styling**: Tailwind CSS + shadcn/ui components
-- **Database**: Railway PostgreSQL
+- **Database (preview)**: Neon Postgres (Dev branch for local, Production
+  branch for the deployed Vercel preview)
+- **Database (production)**: Railway Postgres (different repo / different
+  deployment)
 - **State Management**: React Query (TanStack Query)
 - **Authentication**: Custom password-based system
 - **Typography**: Redaction font family
 
 ### Database
-The application uses Railway PostgreSQL for data storage:
-- **Personnel Table**: Contains public records data (names, badge numbers, compensation, divisions)
+The preview deployment uses Neon Postgres (auto-provisioned by the Vercel +
+Neon integration). The live production site uses Railway Postgres in a
+separate project. Both share the same schema:
+- **Personnel Table**: Contains public records data (names, badge numbers,
+  compensation, divisions, demographics, roster_year, payroll_year)
 - **App Config Table**: Stores application configuration and authentication data
 - **Connection**: Direct PostgreSQL client using `pg` library
 
@@ -117,18 +130,25 @@ The application uses a custom password-based authentication system:
 ## 🚀 Deployment
 
 ### Environment Variables
-Required environment variables for deployment:
+Required for the deployed app:
 
 ```bash
-VITE_DATABASE_URL=postgresql://username:password@host:port/database
+DATABASE_URL=postgresql://username:password@host:port/database
 NODE_ENV=production
 ```
 
-### Railway Deployment
-This application is optimized for Railway deployment:
-1. Connect your GitHub repository to Railway
-2. Set environment variables in Railway dashboard
-3. Railway will automatically deploy on push to main branch
+### Vercel Preview Deployment (this repo)
+This repo auto-deploys to Vercel on push to `main` / `2026-roster-migration`.
+The Vercel project's `DATABASE_URL` is auto-provisioned by the Neon
+integration — separate Neon branches for Development, Preview, and
+Production environments. See [CLAUDE.md](CLAUDE.md) "Environments" for the
+exact branch mapping.
+
+### Railway Production Deployment (separate repo)
+The live nosecretpolice.net site is deployed from
+`Guts-Studios/roster-roster-search` to Railway. Migrations that need to land
+on production are run via `railway run --service Postgres node scripts/...`
+after the preview has been reviewed.
 
 ## 📦 Dependencies
 
