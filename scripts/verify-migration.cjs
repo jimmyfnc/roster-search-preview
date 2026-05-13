@@ -90,5 +90,38 @@ const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false 
   `);
   console.log('  Unique constraints: ' + cons.rows.map(r => r.conname).join(', '));
 
+  // 8. Invariant: for each named person, the row tagged is_current=true has the
+  // MAX(roster_year). Catches regressions in Phase D's PARTITION BY normalization.
+  const invariant = await pool.query(`
+    WITH per_person AS (
+      SELECT
+        LOWER(REGEXP_REPLACE(TRIM(last_name), '\\s+', ' ', 'g')) AS ln,
+        LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(first_name), '\\s+[A-Za-z]\\.?$', ''), '\\s+', ' ', 'g')) AS fn,
+        MAX(roster_year) AS max_year,
+        MAX(roster_year) FILTER (WHERE is_current) AS current_year
+      FROM personnel
+      WHERE last_name IS NOT NULL AND last_name NOT LIKE 'XXXX%'
+      GROUP BY ln, fn
+    )
+    SELECT COUNT(*)::int AS violations
+    FROM per_person
+    WHERE current_year IS DISTINCT FROM max_year
+  `);
+  const v = invariant.rows[0].violations;
+  console.log('\nlatest-per-person invariant violations (should be 0): ' + v);
+  if (v > 0) console.log('  WARN: some named persons have is_current=true on a NON-latest year');
+
+  // 9. Invariant: payroll_year is set iff at least one pay field is non-null.
+  const payInvariant = await pool.query(`
+    SELECT COUNT(*)::int AS violations
+    FROM personnel
+    WHERE payroll_year IS NOT NULL
+      AND regular_pay IS NULL AND premiums IS NULL AND overtime IS NULL
+      AND payout IS NULL AND other_pay IS NULL AND health_dental_vision IS NULL
+  `);
+  const pv = payInvariant.rows[0].violations;
+  console.log('payroll_year-without-pay invariant violations (should be 0): ' + pv);
+  if (pv > 0) console.log('  WARN: some rows claim a payroll year but have no payroll values');
+
   await pool.end();
 })().catch(e => { console.error('ERR:', e.message); process.exit(1); });

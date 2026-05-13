@@ -1,5 +1,9 @@
 // Confirms which DB we're pointed at before running a migration.
 // Prints the host and a row count — no writes. Run this FIRST.
+//
+// The label specifically distinguishes Neon Dev (safe iteration) from Neon Prod
+// (whose changes are immediately visible on the deployed Vercel preview at
+// `*-jimmyfncs-projects.vercel.app`). See CLAUDE.md "Environments" for context.
 require('dotenv').config();
 const { Pool } = require('pg');
 
@@ -9,9 +13,19 @@ if (!url) { console.error('No DATABASE_URL in env'); process.exit(1); }
 const host = (url.split('@')[1] || '').split('/')[0];
 console.log('DB host: ' + host);
 
+const isNeonProd = /ep-autumn-pine/i.test(host);
+const isNeonDev = /ep-mute-queen/i.test(host);
 const isNeon = /neon\.tech/i.test(host);
 const isRailway = /rlwy\.net|railway\.internal/i.test(host);
-console.log('Provider: ' + (isNeon ? 'Neon (preview)' : isRailway ? 'Railway (PRODUCTION)' : 'unknown'));
+
+let provider;
+if (isNeonProd) provider = 'Neon (preview PROD branch — affects deployed Vercel preview)';
+else if (isNeonDev) provider = 'Neon (preview DEV branch — safe iteration)';
+else if (isNeon) provider = 'Neon (unknown branch — INVESTIGATE before writing)';
+else if (isRailway) provider = 'Railway (PRODUCTION live site)';
+else provider = 'unknown';
+
+console.log('Provider: ' + provider);
 
 const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false } });
 (async () => {
