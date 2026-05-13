@@ -48,6 +48,15 @@ This is a React application for searching and displaying public personnel record
 - Personnel photos stored in `/public/photos/` directory with filename conventions
 - PostgreSQL database with connection pooling and optimized queries
 
+### Source data files (`public/data/`)
+
+| File | Role |
+|---|---|
+| `SAPD ROSTER 202403.csv` | Original 2024 roster + payroll. Loaded into the DB as `roster_year=2024`, `payroll_year=2024`. |
+| `NSP_2026_SAPD_260114_ROSTER.xlsx` | **January 2026 roster** (current source of truth). Names, badges, demographics, embedded photos. No payroll columns. Loaded as `roster_year=2026`. |
+| `NSP_SAPD_2025_PAYROLL - SAPD_2025_PAYROLL.csv` | **Final 2025 payroll** numbers (confirmed by camacho). The migration prefers these for 2026 records' payroll fields and stamps `payroll_year=2025`. |
+| `NSP_UPDATE_SAPD_202603 - MASTER.csv` | **Historical / unused.** This was a preliminary 2025 payroll snapshot the city released in March 2026. Superseded by the final 2025 payroll CSV. Kept in the repo for archival reference but NOT consumed by `migrate-2025-2026-data.cjs`. |
+
 ### Component Architecture
 - Uses shadcn-ui component library with Radix UI primitives
 - Tailwind CSS for styling with custom theme colors
