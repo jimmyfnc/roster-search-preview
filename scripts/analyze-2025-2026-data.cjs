@@ -1,10 +1,11 @@
 // Analysis-only script for the new 2025 CSV and 2026 XLSX.
 // Does not touch the database. Reports findings to stdout.
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const Papa = require('papaparse');
 
-const TMP = path.join(process.env.TEMP || 'C:\\Users\\caldw\\AppData\\Local\\Temp', 'nsp_xlsx_inspect');
+const TMP = path.join(os.tmpdir(), 'nsp_xlsx_inspect');
 
 // ---- Helpers ----
 const norm = s => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -110,7 +111,7 @@ console.log('Rows with blank/X badge: ' + noBadge);
 console.log('Anchors w/o data row: ' + noRow);
 
 // ---- 4) Existing photo coverage ----
-const existing = fs.readdirSync('public/photos').filter(f => /\.webp$/.test(f));
+const existing = fs.readdirSync(path.join(__dirname, '..', 'public', 'photos')).filter(f => /\.webp$/.test(f));
 const existingBadges = new Set();
 for (const f of existing) {
   const m = f.match(/_(\d+)\.webp$/);

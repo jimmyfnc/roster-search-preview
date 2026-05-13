@@ -3,10 +3,11 @@
 //  (b) inspect the 2025 payroll "Note" column for redaction markers
 //  (c) sketch the "latest record per person" deduplication scope
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const Papa = require('papaparse');
 
-const TMP = path.join(process.env.TEMP || 'C:\\Users\\caldw\\AppData\\Local\\Temp', 'nsp_xlsx_inspect');
+const TMP = path.join(os.tmpdir(), 'nsp_xlsx_inspect');
 
 const norm = s => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const stripMiddle = s => norm(s).replace(/\s+[a-z]\.?$/, '');

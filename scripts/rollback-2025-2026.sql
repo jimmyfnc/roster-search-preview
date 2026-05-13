@@ -15,6 +15,9 @@ DROP INDEX IF EXISTS idx_personnel_roster_year;
 DROP INDEX IF EXISTS idx_personnel_is_current;
 DROP INDEX IF EXISTS idx_personnel_name_year;
 
+-- 3b. Drop the partial expression index that mirrors the Phase D partition key.
+DROP INDEX IF EXISTS idx_personnel_name_stripped;
+
 -- 4. Drop the columns added during migration.
 ALTER TABLE personnel DROP COLUMN IF EXISTS gender;
 ALTER TABLE personnel DROP COLUMN IF EXISTS ethnicity;
@@ -24,11 +27,21 @@ ALTER TABLE personnel DROP COLUMN IF EXISTS year_of_hire;
 ALTER TABLE personnel DROP COLUMN IF EXISTS roster_year;
 ALTER TABLE personnel DROP COLUMN IF EXISTS is_current;
 ALTER TABLE personnel DROP COLUMN IF EXISTS rank_title;
+ALTER TABLE personnel DROP COLUMN IF EXISTS payroll_year;
 
 -- 5. Restore the original single-column UNIQUE constraint on badge_number.
 -- Convention: PostgreSQL names inline UNIQUE constraints as <table>_<col>_key.
+-- First assert no duplicate badges exist, so the constraint add doesn't fail mid-rollback.
 DO $$
+DECLARE dup_count INTEGER;
 BEGIN
+  SELECT COUNT(*) INTO dup_count FROM (
+    SELECT badge_number FROM personnel WHERE badge_number IS NOT NULL
+    GROUP BY badge_number HAVING COUNT(*) > 1
+  ) d;
+  IF dup_count > 0 THEN
+    RAISE EXCEPTION 'Cannot restore badge_number UNIQUE: % duplicate badge values exist post-rollback', dup_count;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'personnel_badge_number_key') THEN
     ALTER TABLE personnel ADD CONSTRAINT personnel_badge_number_key UNIQUE (badge_number);
   END IF;

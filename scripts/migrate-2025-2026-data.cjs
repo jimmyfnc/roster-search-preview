@@ -3,16 +3,20 @@
 // and produces a three-year versioned dataset.
 //
 // Phase 0: Schema migration (idempotent DDL).
-// Phase A: Reset is_current=false everywhere (rebuilt at the end).
+// Phase A: Reset is_current=false + delete pre-existing 2025/2026 rows (idempotent re-run).
 // Phase B: Insert 2025 records from CSV, carrying badge/division forward from 2024 where matched.
-// Phase C: Insert 2026 records from XLSX (named + redacted), carrying 2024 payroll/classification.
+// Phase C: Insert 2026 records from XLSX (named + redacted), preferring 2025 payroll
+//          over 2024 carry-forward where available; stamps payroll_year accordingly.
 // Phase D: Rebuild is_current as latest-per-person (named) + every redacted 2026 row.
 //
 // One transaction. Any failure rolls back the entire migration.
-// Load .env (e.g., from `vercel env pull`) so DATABASE_URL is available without ceremony.
+//
+// Flags:
+//   DRY_RUN=1  - skip COMMIT and ROLLBACK at the end; useful for previewing changes.
 require('dotenv').config();
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { Pool } = require('pg');
 const Papa = require('papaparse');
@@ -25,10 +29,12 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
+const DRY_RUN = process.env.DRY_RUN === '1' || process.argv.includes('--dry-run');
+
 const XLSX_PATH = path.join(__dirname, '..', 'public', 'data', 'NSP_2026_SAPD_260114_ROSTER.xlsx');
 const CSV_2025 = path.join(__dirname, '..', 'public', 'data', 'NSP_SAPD_2025_PAYROLL - SAPD_2025_PAYROLL.csv');
 const SCHEMA_SQL = path.join(__dirname, 'migrate-2025-2026-extra-schema.sql');
-const EXTRACT_DIR = path.join(process.env.TEMP || 'C:\\Users\\caldw\\AppData\\Local\\Temp', 'nsp_xlsx_migration');
+const EXTRACT_DIR = path.join(os.tmpdir(), 'nsp_xlsx_migration');
 
 const norm = s => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const stripMiddle = s => norm(s).replace(/\s+[a-z]\.?$/, '');
@@ -38,9 +44,38 @@ const parseMoney = v => {
   return isNaN(num) ? null : num;
 };
 // "Police Officer (Detective)" -> "Police Officer" so classification matches 2024 conventions.
-const baseRank = s => (s || '').trim().split(' (')[0] || null;
+const baseRank = s => {
+  if (s == null) return null;
+  const cleaned = String(s).trim().split(' (')[0];
+  return cleaned || null;
+};
+const anyNonNull = arr => arr.some(v => v != null);
+
+// Generic chunked multi-row INSERT. Postgres has a ~32k bind-param ceiling; we cap chunks
+// so we never approach it. Avoids the per-row round-trip cost on remote Neon connections.
+async function batchInsert(client, table, columns, rows, chunkSize = 100) {
+  if (rows.length === 0) return 0;
+  const colList = columns.join(', ');
+  let total = 0;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    const placeholders = [];
+    const values = [];
+    let p = 1;
+    for (const row of chunk) {
+      placeholders.push('(' + columns.map(() => '$' + (p++)).join(', ') + ')');
+      for (const col of columns) values.push(row[col] === undefined ? null : row[col]);
+    }
+    const sql = `INSERT INTO ${table} (${colList}) VALUES ${placeholders.join(', ')}`;
+    const res = await client.query(sql, values);
+    total += res.rowCount;
+  }
+  return total;
+}
 
 async function migrate() {
+  if (DRY_RUN) console.log('*** DRY RUN: nothing will be committed ***\n');
+
   console.log('Extracting XLSX to ' + EXTRACT_DIR);
   ensureExtracted(XLSX_PATH, EXTRACT_DIR);
   const { rows: xlsxRows } = readSheet(EXTRACT_DIR);
@@ -63,24 +98,16 @@ async function migrate() {
     console.log('\nPhase 0: schema migration applied');
 
     // ---- Phase A: reset state ----
-    // Reset is_current so Phase D can rebuild it cleanly.
     const reset = await client.query('UPDATE personnel SET is_current = false');
     console.log('Phase A: reset is_current=false on ' + reset.rowCount + ' rows');
-
-    // Delete any pre-existing 2025/2026 rows so the migration is idempotent.
-    // Lets the script run against a fresh baseline OR a DB that already has prior
-    // 2025/2026 imports (e.g., preview DB with the original March-CSV migration applied).
-    const wipeOld = await client.query(
-      "DELETE FROM personnel WHERE roster_year IN (2025, 2026)"
-    );
+    const wipeOld = await client.query("DELETE FROM personnel WHERE roster_year IN (2025, 2026)");
     console.log('Phase A: deleted ' + wipeOld.rowCount + ' pre-existing 2025/2026 rows');
 
-    // Load 2024 baseline for carry-forward in subsequent phases.
+    // Load 2024 baseline (now the only remaining year) for carry-forward.
     const baseline2024 = await client.query(
       `SELECT id, last_name, first_name, badge_number, classification, division,
               regular_pay, premiums, overtime, payout, other_pay, health_dental_vision
-         FROM personnel
-        WHERE roster_year = 2024`
+         FROM personnel WHERE roster_year = 2024`
     );
     const by2024 = new Map();
     for (const r of baseline2024.rows) {
@@ -93,66 +120,95 @@ async function migrate() {
     // Build a 2025 payroll lookup keyed by stripped name. Used by Phase C to prefer
     // 2025 payroll over 2024 carry-forward when populating 2026 records.
     const by2025 = new Map();
+    let collisions2025 = 0;
     for (const row of csv2025) {
       const k = norm(row['Last Name']) + '|' + stripMiddle(row['First Name']);
-      if (!by2025.has(k)) {
-        by2025.set(k, {
-          regular_pay: parseMoney(row['Regular Pay']),
-          premiums: parseMoney(row['Premiums']),
-          overtime: parseMoney(row['Overtime']),
-          payout: parseMoney(row['Payout']),
-          other_pay: parseMoney(row['Other']),
-          health_dental_vision: parseMoney(row['Health Dental Vision']),
-        });
+      if (by2025.has(k)) {
+        collisions2025++;
+        console.warn('  WARN: duplicate name in 2025 CSV, keeping first: ' + row['Last Name'] + ', ' + row['First Name']);
+        continue;
       }
+      by2025.set(k, {
+        regular_pay: parseMoney(row['Regular Pay']),
+        premiums: parseMoney(row['Premiums']),
+        overtime: parseMoney(row['Overtime']),
+        payout: parseMoney(row['Payout']),
+        other_pay: parseMoney(row['Other']),
+        health_dental_vision: parseMoney(row['Health Dental Vision']),
+      });
     }
+    if (collisions2025) console.log('  2025 name collisions: ' + collisions2025);
 
-    // ---- Phase B: insert 2025 records ----
-    let inserted2025 = 0, matched2025 = 0, unmatched2025 = 0;
+    // ---- Phase B: prepare 2025 records ----
+    const rows2025 = [];
+    let matched2025 = 0, ambiguous2025 = 0, unmatched2025 = 0;
     for (const row of csv2025) {
       const lastName = (row['Last Name'] || '').trim();
       const firstName = (row['First Name'] || '').trim();
       if (!lastName && !firstName) continue;
 
-      const classification = (row['Classification'] || '').trim() || null;
+      const rawClass = (row['Classification'] || '').trim();
       const regularPay = parseMoney(row['Regular Pay']);
       const overtime = parseMoney(row['Overtime']);
       const payout = parseMoney(row['Payout']);
       const premiums = parseMoney(row['Premiums']);
       const otherPay = parseMoney(row['Other']);
       const hdv = parseMoney(row['Health Dental Vision']);
+      const hasAnyPay = anyNonNull([regularPay, premiums, overtime, payout, otherPay, hdv]);
 
       const k = norm(lastName) + '|' + stripMiddle(firstName);
       const matches = by2024.get(k);
-      let badge = null, division = null;
+      let badge = null, division = null, classification;
       if (matches && matches.length >= 1) {
-        badge = matches[0].badge_number || null;
-        division = matches[0].division || null;
+        // Phase C uses badge as a tiebreaker; mirror that here even though CSV rows
+        // have no badge, so it falls through to matches[0] in the no-badge case.
+        const target = matches[0];
+        badge = target.badge_number || null;
+        division = target.division || null;
+        classification = target.classification || (rawClass ? baseRank(rawClass) : null);
+        if (matches.length > 1) ambiguous2025++;
         matched2025++;
       } else {
+        // No 2024 match: normalize the CSV value through baseRank so we don't
+        // pollute the dataset with "(Temp Up)" / "(RM)" / etc. on 2025-only personnel.
+        classification = rawClass ? baseRank(rawClass) : null;
         unmatched2025++;
       }
 
-      await client.query(
-        `INSERT INTO personnel
-           (last_name, first_name, badge_number, classification, division,
-            regular_pay, premiums, overtime, payout, other_pay, health_dental_vision,
-            roster_year, is_current, payroll_year)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,2025,false,2025)`,
-        [lastName, firstName, badge, classification, division,
-         regularPay, premiums, overtime, payout, otherPay, hdv]
-      );
-      inserted2025++;
+      rows2025.push({
+        last_name: lastName,
+        first_name: firstName,
+        badge_number: badge,
+        classification,
+        division,
+        regular_pay: regularPay,
+        premiums,
+        overtime,
+        payout,
+        other_pay: otherPay,
+        health_dental_vision: hdv,
+        roster_year: 2025,
+        is_current: false,
+        payroll_year: hasAnyPay ? 2025 : null,
+      });
     }
-    console.log('\nPhase B: inserted ' + inserted2025 + ' rows for roster_year=2025 (payroll_year=2025)');
-    console.log('  Carry-forward match (badge/division from 2024): ' + matched2025);
-    console.log('  Unmatched (null badge, no division):            ' + unmatched2025);
 
-    // ---- Phase C: insert 2026 records from XLSX ----
-    // Payroll source priority for 2026 records: 2025 (most recent) > 2024 > null.
-    // Each 2026 row gets the matching year stamped on payroll_year so the UI disclaimer
-    // can reflect actual data currency per-record.
-    let inserted2026 = 0, named2026 = 0, redacted2026 = 0;
+    const inserted2025 = await batchInsert(
+      client,
+      'personnel',
+      ['last_name', 'first_name', 'badge_number', 'classification', 'division',
+       'regular_pay', 'premiums', 'overtime', 'payout', 'other_pay', 'health_dental_vision',
+       'roster_year', 'is_current', 'payroll_year'],
+      rows2025
+    );
+    console.log('\nPhase B: inserted ' + inserted2025 + ' rows for roster_year=2025');
+    console.log('  Carry-forward (badge/division/classification from 2024): ' + matched2025);
+    console.log('  Ambiguous 2024 matches (took first):                     ' + ambiguous2025);
+    console.log('  Unmatched (no 2024 record):                              ' + unmatched2025);
+
+    // ---- Phase C: prepare 2026 records ----
+    // Payroll source priority: 2025 (most recent) > 2024 > null.
+    const rows2026 = [];
     let payrollFrom2025 = 0, payrollFrom2024 = 0, payrollNone = 0;
     for (const r of namedXlsx) {
       const k = norm(r.last) + '|' + stripMiddle(r.first);
@@ -163,11 +219,14 @@ async function migrate() {
         : null;
 
       let pay, payrollYear;
-      if (pay2025) {
+      if (pay2025 && anyNonNull(Object.values(pay2025))) {
         pay = pay2025;
         payrollYear = 2025;
         payrollFrom2025++;
-      } else if (carry2024) {
+      } else if (carry2024 && anyNonNull([
+        carry2024.regular_pay, carry2024.premiums, carry2024.overtime,
+        carry2024.payout, carry2024.other_pay, carry2024.health_dental_vision,
+      ])) {
         pay = {
           regular_pay: carry2024.regular_pay,
           premiums: carry2024.premiums,
@@ -184,61 +243,84 @@ async function migrate() {
         payrollNone++;
       }
 
-      // Classification: prefer the 2024 record's classification (most consistent with existing data),
-      // fall back to the XLSX rank title stripped of parens.
       const classification = carry2024 ? carry2024.classification : baseRank(r.rankTitle);
 
-      await client.query(
-        `INSERT INTO personnel
-           (last_name, first_name, badge_number, classification, division,
-            regular_pay, premiums, overtime, payout, other_pay, health_dental_vision,
-            gender, ethnicity, height, weight, year_of_hire, rank_title,
-            roster_year, is_current, payroll_year)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,2026,false,$18)`,
-        [
-          r.last, r.first, r.badge, classification, r.division,
-          pay.regular_pay, pay.premiums, pay.overtime, pay.payout, pay.other_pay, pay.health_dental_vision,
-          r.gender, r.ethnicity, r.height, r.weight, r.yearOfHire, r.rankTitle,
-          payrollYear,
-        ]
-      );
-      inserted2026++;
-      named2026++;
+      rows2026.push({
+        last_name: r.last,
+        first_name: r.first,
+        badge_number: r.badge,
+        classification,
+        division: r.division,
+        regular_pay: pay.regular_pay,
+        premiums: pay.premiums,
+        overtime: pay.overtime,
+        payout: pay.payout,
+        other_pay: pay.other_pay,
+        health_dental_vision: pay.health_dental_vision,
+        gender: r.gender,
+        ethnicity: r.ethnicity,
+        height: r.height,
+        weight: r.weight,
+        year_of_hire: r.yearOfHire,
+        rank_title: r.rankTitle,
+        roster_year: 2026,
+        is_current: false,
+        payroll_year: payrollYear,
+      });
     }
     for (const r of redactedXlsx) {
       // Names stay as the literal XLSX "XXXXXXX" strings to satisfy NOT NULL.
       // No payroll for redacted rows (can't join), so payroll_year stays NULL.
-      await client.query(
-        `INSERT INTO personnel
-           (last_name, first_name, badge_number, classification, division,
-            gender, ethnicity, height, weight, year_of_hire, rank_title,
-            roster_year, is_current)
-         VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, 2026, false)`,
-        [
-          r.last || 'XXXXXXX',
-          r.first || 'XXXXXXX',
-          baseRank(r.rankTitle), r.division, r.gender, r.ethnicity, r.height, r.weight, r.yearOfHire, r.rankTitle,
-        ]
-      );
-      inserted2026++;
-      redacted2026++;
+      rows2026.push({
+        last_name: r.last || 'XXXXXXX',
+        first_name: r.first || 'XXXXXXX',
+        badge_number: null,
+        classification: baseRank(r.rankTitle),
+        division: r.division,
+        regular_pay: null,
+        premiums: null,
+        overtime: null,
+        payout: null,
+        other_pay: null,
+        health_dental_vision: null,
+        gender: r.gender,
+        ethnicity: r.ethnicity,
+        height: r.height,
+        weight: r.weight,
+        year_of_hire: r.yearOfHire,
+        rank_title: r.rankTitle,
+        roster_year: 2026,
+        is_current: false,
+        payroll_year: null,
+      });
     }
+
+    const inserted2026 = await batchInsert(
+      client,
+      'personnel',
+      ['last_name', 'first_name', 'badge_number', 'classification', 'division',
+       'regular_pay', 'premiums', 'overtime', 'payout', 'other_pay', 'health_dental_vision',
+       'gender', 'ethnicity', 'height', 'weight', 'year_of_hire', 'rank_title',
+       'roster_year', 'is_current', 'payroll_year'],
+      rows2026
+    );
     console.log('\nPhase C: inserted ' + inserted2026 + ' rows for roster_year=2026');
-    console.log('  Named:    ' + named2026);
+    console.log('  Named:    ' + namedXlsx.length);
     console.log('    Payroll from 2025: ' + payrollFrom2025);
     console.log('    Payroll from 2024: ' + payrollFrom2024);
     console.log('    No payroll source: ' + payrollNone);
-    console.log('  Redacted: ' + redacted2026 + ' (no payroll)');
+    console.log('  Redacted: ' + redactedXlsx.length + ' (no payroll)');
 
     // ---- Phase D: rebuild is_current ----
-    // Named personnel: latest year wins per stripped-name key.
-    // Redacted rows (last_name LIKE 'XXXX%') are excluded so they don't collide on a sentinel name.
+    // Named personnel: latest year wins per stripped-name key. The partition key
+    // mirrors the JS `norm`/`stripMiddle` (lowercase + collapse-whitespace + strip
+    // trailing single-letter initial), so it stays in sync if either side changes.
     const namedUpdate = await client.query(`
       WITH ranked AS (
         SELECT id,
                ROW_NUMBER() OVER (
-                 PARTITION BY LOWER(last_name),
-                              LOWER(REGEXP_REPLACE(first_name, '\\s+[A-Za-z]\\.?$', ''))
+                 PARTITION BY LOWER(REGEXP_REPLACE(TRIM(last_name), '\\s+', ' ', 'g')),
+                              LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(first_name), '\\s+[A-Za-z]\\.?$', ''), '\\s+', ' ', 'g'))
                  ORDER BY roster_year DESC, id DESC
                ) AS rn
           FROM personnel
@@ -250,7 +332,6 @@ async function migrate() {
     `);
     console.log('\nPhase D: marked ' + namedUpdate.rowCount + ' named records as is_current=true');
 
-    // Redacted 2026 rows: every one stays current (no dedup possible).
     const redactedUpdate = await client.query(`
       UPDATE personnel SET is_current = true
        WHERE roster_year = 2026 AND last_name LIKE 'XXXX%'
@@ -273,8 +354,13 @@ async function migrate() {
     console.log('\nTotal rows:           ' + total.rows[0].c);
     console.log('is_current=true rows: ' + totalCurrent.rows[0].c);
 
-    await client.query('COMMIT');
-    console.log('\nMigration committed successfully.');
+    if (DRY_RUN) {
+      await client.query('ROLLBACK');
+      console.log('\nDRY RUN complete — changes rolled back.');
+    } else {
+      await client.query('COMMIT');
+      console.log('\nMigration committed successfully.');
+    }
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('\nMigration FAILED — rolled back:', err.message);

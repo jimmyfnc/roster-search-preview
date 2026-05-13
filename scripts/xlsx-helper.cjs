@@ -1,9 +1,9 @@
 // Shared XLSX helpers for the 2025/2026 migration scripts.
-// XLSX is a zip; we extract via PowerShell's System.IO.Compression and parse the XML by hand
-// to avoid pulling in a heavy dependency for a one-shot migration.
+// XLSX is a zip; we extract via adm-zip (cross-platform) and parse the XML by hand
+// to avoid a heavy XLSX parser dependency.
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const AdmZip = require('adm-zip');
 
 function ensureExtracted(xlsxPath, extractDir) {
   if (!fs.existsSync(xlsxPath)) {
@@ -12,11 +12,8 @@ function ensureExtracted(xlsxPath, extractDir) {
   if (fs.existsSync(extractDir)) {
     fs.rmSync(extractDir, { recursive: true, force: true });
   }
-  // PowerShell's Expand-Archive requires .zip; ZipFile.ExtractToDirectory does not.
-  const ps =
-    'Add-Type -AssemblyName System.IO.Compression.FileSystem; ' +
-    `[System.IO.Compression.ZipFile]::ExtractToDirectory('${xlsxPath.replace(/'/g, "''")}', '${extractDir.replace(/'/g, "''")}')`;
-  execSync(`powershell.exe -NoProfile -Command "${ps}"`, { stdio: 'inherit' });
+  fs.mkdirSync(extractDir, { recursive: true });
+  new AdmZip(xlsxPath).extractAllTo(extractDir, /* overwrite */ true);
 }
 
 function readSharedStrings(extractDir) {
@@ -103,6 +100,8 @@ function readSheet(extractDir, sheetName = 'sheet1.xml') {
     yearOfHire: colOf('Year of Hire'),
   };
 
+  const isRedactedToken = s => /^X+$/i.test((s || '').replace(/\s+/g, ''));
+
   const rows = [];
   for (let i = 1; i < rowMatches.length; i++) {
     const rowNumber = parseInt(rowMatches[i][1], 10);
@@ -111,6 +110,9 @@ function readSheet(extractDir, sheetName = 'sheet1.xml') {
     const first = cells[cols.first] || '';
     const rawBadge = cells[cols.badge] || '';
     if (!last && !first && !rawBadge) continue;
+
+    const rawRank = cells[cols.rankTitle] || null;
+    const rankTitle = rawRank && isRedactedToken(rawRank) ? null : rawRank;
 
     rows.push({
       rowNumber,
@@ -123,12 +125,10 @@ function readSheet(extractDir, sheetName = 'sheet1.xml') {
       ethnicity: cells[cols.ethnicity] || null,
       height: normalizeHeight(cells[cols.height]),
       weight: normalizeInt(cells[cols.weight]),
-      rankTitle: cells[cols.rankTitle] || null,
+      rankTitle,
       yearOfHire: normalizeInt(cells[cols.yearOfHire]),
       isRedacted:
-        /^X+$/i.test((last || '').replace(/\s+/g, '')) ||
-        /^X+$/i.test((first || '').replace(/\s+/g, '')) ||
-        /^X+$/i.test((rawBadge || '').replace(/\s+/g, '')),
+        isRedactedToken(last) || isRedactedToken(first) || isRedactedToken(rawBadge),
     });
   }
 
@@ -149,12 +149,20 @@ function readImageAnchors(extractDir) {
       /<xdr:(twoCellAnchor|oneCellAnchor)[\s\S]*?<xdr:from>[\s\S]*?<xdr:row>(\d+)<\/xdr:row>[\s\S]*?<a:blip[^>]*r:embed="([^"]+)"/g
     ),
   ];
-  return anchors.map(a => {
+
+  // Guard against zip-slip: any image target whose resolved path escapes extractDir is rejected.
+  const safeRoot = path.resolve(extractDir);
+  const out = [];
+  for (const a of anchors) {
     const target = relMap[a[3]] || '';
-    // Target is like "../media/image1.png" — strip the prefix.
-    const file = target.replace(/^.*\/(media\/.+)$/, '$1');
-    return { row: parseInt(a[2], 10) + 1, file: path.join(extractDir, 'xl', file) };
-  });
+    // Target looks like "../media/image1.png" relative to xl/drawings/.
+    const filePath = path.resolve(path.join(extractDir, 'xl', 'drawings', target));
+    if (!filePath.startsWith(safeRoot + path.sep) && filePath !== safeRoot) {
+      throw new Error('Zip-slip rejected for drawing target: ' + target);
+    }
+    out.push({ row: parseInt(a[2], 10) + 1, file: filePath });
+  }
+  return out;
 }
 
 module.exports = { ensureExtracted, readSheet, readImageAnchors };

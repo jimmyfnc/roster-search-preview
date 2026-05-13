@@ -4,19 +4,22 @@
 // Safe to run independently of the database migration. Overwrites existing 295 dupes
 // per user direction (so the higher-quality XLSX versions win).
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const sharp = require('sharp');
 const { ensureExtracted, readSheet, readImageAnchors } = require('./xlsx-helper.cjs');
 
 const XLSX_PATH = path.join(__dirname, '..', 'public', 'data', 'NSP_2026_SAPD_260114_ROSTER.xlsx');
-const EXTRACT_DIR = path.join(process.env.TEMP || 'C:\\Users\\caldw\\AppData\\Local\\Temp', 'nsp_xlsx_photos');
+const EXTRACT_DIR = path.join(os.tmpdir(), 'nsp_xlsx_photos');
 const OUT_DIR = path.join(__dirname, '..', 'public', 'photos');
 
-// Match the existing public/photos/ naming: lowercase, spaces -> underscores, no special chars.
+// Match the existing public/photos/ naming: lowercase, spaces -> underscores, strip
+// surrounding quotes and trailing punctuation (which Windows treats fragile in paths).
 function nameToken(s) {
   return (s || '')
     .toLowerCase()
     .replace(/['"]/g, '')
+    .replace(/[.,;:!?]+$/, '')
     .replace(/\s+/g, '_');
 }
 
