@@ -16,39 +16,32 @@ const ProfileCard: React.FC<ProfileCardProps> = ({ person }) => {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const { createProfileLink } = useRosterUrlState();
 
-  // Check for working photo URL by trying multiple variations
+  // Probe all photo URL variations in parallel; first success wins. Cleanup guards
+  // against stale state when search results change while probes are still in flight
+  // (on a 20-card page that's up to 400 concurrent probes — Promise.any short-circuits).
   useEffect(() => {
-    const findWorkingPhotoUrl = async () => {
-      const potentialUrls = getPhotoUrlVariations(person);
-      if (potentialUrls.length === 0) {
-        setPhotoUrl(null);
-        return;
-      }
-
-      // Try each URL variation until we find one that works
-      for (const url of potentialUrls) {
-        try {
-          const success = await new Promise<boolean>((resolve) => {
-            const img = new Image();
-            img.onload = () => resolve(true);
-            img.onerror = () => resolve(false);
-            img.src = url;
-          });
-
-          if (success) {
-            setPhotoUrl(url);
-            return;
-          }
-        } catch {
-          continue;
-        }
-      }
-
-      // If no variation worked, set to null
+    const potentialUrls = getPhotoUrlVariations(person);
+    if (potentialUrls.length === 0) {
       setPhotoUrl(null);
-    };
+      return;
+    }
 
-    findWorkingPhotoUrl();
+    let cancelled = false;
+    Promise.any(
+      potentialUrls.map(
+        (url) =>
+          new Promise<string>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(url);
+            img.onerror = () => reject();
+            img.src = url;
+          })
+      )
+    )
+      .then((url) => { if (!cancelled) setPhotoUrl(url); })
+      .catch(() => { if (!cancelled) setPhotoUrl(null); });
+
+    return () => { cancelled = true; };
   }, [person]);
 
   return (

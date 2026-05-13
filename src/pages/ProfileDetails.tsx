@@ -11,6 +11,14 @@ import { ArrowLeft, Shield, DollarSign, X, ZoomIn } from "lucide-react";
 import { getPhotoUrlVariations } from "@/utils/photoUtils";
 import { useRosterUrlState } from "../hooks/useUrlState";
 
+// Hoisted outside the component: constructing Intl.NumberFormat is ~10-50x slower than .format().
+const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const ProfileDetails = () => {
   const { id } = useParams<{ id: string }>();
   const { data: person, isLoading, error } = usePersonnelById(id || "");
@@ -18,44 +26,37 @@ const ProfileDetails = () => {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const { getReturnPath } = useRosterUrlState();
 
-  // Check for working photo URL by trying multiple variations (same logic as ProfileCard)
+  // Check for working photo URL: probe all variations in parallel; first success wins.
+  // Cleanup guards against stale state when the user navigates between profiles before
+  // probes resolve.
   useEffect(() => {
     if (!person) {
       setPhotoUrl(null);
       return;
     }
-    
-    const findWorkingPhotoUrl = async () => {
-      const potentialUrls = getPhotoUrlVariations(person);
-      if (potentialUrls.length === 0) {
-        setPhotoUrl(null);
-        return;
-      }
-      
-      // Try each URL variation until we find one that works
-      for (const url of potentialUrls) {
-        try {
-          const success = await new Promise<boolean>((resolve) => {
-            const img = new Image();
-            img.onload = () => resolve(true);
-            img.onerror = () => resolve(false);
-            img.src = url;
-          });
-          
-          if (success) {
-            setPhotoUrl(url);
-            return;
-          }
-        } catch {
-          continue;
-        }
-      }
-      
-      // If no variation worked, set to null
+
+    let cancelled = false;
+    const potentialUrls = getPhotoUrlVariations(person);
+    if (potentialUrls.length === 0) {
       setPhotoUrl(null);
-    };
-    
-    findWorkingPhotoUrl();
+      return;
+    }
+
+    Promise.any(
+      potentialUrls.map(
+        (url) =>
+          new Promise<string>((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(url);
+            img.onerror = () => reject();
+            img.src = url;
+          })
+      )
+    )
+      .then((url) => { if (!cancelled) setPhotoUrl(url); })
+      .catch(() => { if (!cancelled) setPhotoUrl(null); });
+
+    return () => { cancelled = true; };
   }, [person]);
 
   if (isLoading) {
@@ -70,8 +71,8 @@ const ProfileDetails = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-destructive mb-4">Access Denied</h1>
-          <p className="text-muted-foreground mb-6">You need to be authenticated to view public records.</p>
+          <h1 className="text-2xl font-bold text-destructive mb-4">Unable to load record</h1>
+          <p className="text-muted-foreground mb-6">Something went wrong fetching this profile. Please try again.</p>
           <Link to={getReturnPath()}>
             <Button className="bg-inadvertent-yellow text-inadvertent-dark-text">
               <ArrowLeft size={16} /> Return to Results
@@ -100,55 +101,16 @@ const ProfileDetails = () => {
 
   const fullName = getFullName(person);
   const initials = `${person.first_name?.[0] || ''}${person.last_name?.[0] || ''}`;
-  // Production-safe currency formatting function
+
   const formatCurrency = (value: number | null | undefined): string => {
     if (value === null || value === undefined || isNaN(value) || value <= 0) {
       return '$0.00';
     }
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(value);
+    return CURRENCY_FORMATTER.format(value);
   };
 
-  // Production-safe total calculation
-  const calculateTotalCompensation = (): string => {
-    try {
-      // Manual calculation to bypass any caching issues
-      const regularPayNum = parseFloat(String(person.regular_pay || '0')) || 0;
-      const premiumsNum = parseFloat(String(person.premiums || '0')) || 0;
-      const overtimeNum = parseFloat(String(person.overtime || '0')) || 0;
-      const payoutNum = parseFloat(String(person.payout || '0')) || 0;
-      const otherPayNum = parseFloat(String(person.other_pay || '0')) || 0;
-      const healthNum = parseFloat(String(person.health_dental_vision || '0')) || 0;
-      
-      // Development-only debugging
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Compensation calculation debug:', {
-          regular_pay: regularPayNum,
-          premiums: premiumsNum,
-          overtime: overtimeNum,
-          payout: payoutNum,
-          other_pay: otherPayNum,
-          health_dental_vision: healthNum
-        });
-      }
-      
-      // Force numerical addition
-      const manualTotal = regularPayNum + premiumsNum + overtimeNum + payoutNum + otherPayNum + healthNum;
-      
-      return manualTotal > 0 ? formatCurrency(manualTotal) : 'Not available';
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Error calculating total compensation:', error);
-      }
-      return 'Not available';
-    }
-  };
-
-  const formattedCompensation = calculateTotalCompensation();
+  const total = getTotalCompensation(person);
+  const formattedCompensation = total > 0 ? formatCurrency(total) : 'Not available';
 
   return (
     <div className="min-h-screen bg-background">
