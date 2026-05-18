@@ -130,6 +130,18 @@ function generatePhotoVariations(person: Personnel): string[] {
         if (nicknameMap[lowerFirstName]) {
           firstNameVariations.push(...nicknameMap[lowerFirstName]);
         }
+
+        // Also try a stripped-middle-initial variant. The 2025 payroll CSV stores
+        // names like "James D." but the photo files use the base "james". Strips
+        // either an underscore-prefixed initial ("_d") or trailing initial-with-period
+        // ("_d.") from the end of the formatted first name.
+        const strippedFirst = formattedFirstName.replace(/_[a-z]\.?$/i, '');
+        if (strippedFirst && strippedFirst !== formattedFirstName) {
+          firstNameVariations.push(strippedFirst);
+          if (nicknameMap[strippedFirst]) {
+            firstNameVariations.push(...nicknameMap[strippedFirst]);
+          }
+        }
         
         for (const firstNameVar of firstNameVariations) {
           // Variation 1: suffix concatenated directly (like espinozaii_roberto_3770.webp)
