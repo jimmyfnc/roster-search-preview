@@ -129,9 +129,29 @@ const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false 
      WHERE is_current = true AND last_name NOT LIKE 'XXXX%'
   `);
   const NICKNAMES = {
-    dan: 'daniel', rob: 'robert', bob: 'robert', bill: 'william', will: 'william',
-    rick: 'richard', dick: 'richard', mike: 'michael', chris: 'christopher',
-    matt: 'matthew', tony: 'anthony',
+    dan: 'daniel', danny: 'daniel',
+    rob: 'robert', bob: 'robert', bobby: 'robert',
+    bill: 'william', will: 'william', willie: 'william',
+    rick: 'richard', ricky: 'richard', dick: 'richard',
+    mike: 'michael', mikey: 'michael',
+    chris: 'christopher',
+    matt: 'matthew', matty: 'matthew',
+    tony: 'anthony',
+    jim: 'james', jimmy: 'james',
+    joe: 'joseph', joey: 'joseph',
+    tom: 'thomas', tommy: 'thomas',
+    andy: 'andrew', drew: 'andrew',
+    jerry: 'gerald',
+    steve: 'steven', stevie: 'steven', stephen: 'steven',
+    pete: 'peter',
+    ed: 'edward', eddie: 'edward',
+    alex: 'alexander',
+    nick: 'nicholas', nicky: 'nicholas',
+    zach: 'zachary', zack: 'zachary',
+    ben: 'benjamin', benji: 'benjamin',
+    sam: 'samuel', sammy: 'samuel',
+    greg: 'gregory',
+    larry: 'lawrence',
   };
   const SUFFIX_RE = /\s+(jr\.?|junior|sr\.?|senior|i{1,3}|iv|2nd|3rd|4th)$/i;
   const canon = (last, first) => {

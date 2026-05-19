@@ -51,17 +51,33 @@ const baseRank = s => {
 };
 const anyNonNull = arr => arr.some(v => v != null);
 
-// Nickname → canonical first name, mirrors src/utils/photoUtils.ts nicknameMap.
-// Used in Phase E to recognize "Dan Baek" and "Daniel S. Baek" as the same person.
+// Nickname → canonical first name. Used in Phase E to recognize "Dan Baek" and
+// "Daniel S. Baek" as the same person. Expand this map as new cases are found
+// (typically via Ben spotting duplicates in the deployed preview).
 const NICKNAME_TO_CANONICAL = {
-  dan: 'daniel', daniel: 'daniel',
-  rob: 'robert', bob: 'robert', robert: 'robert',
-  bill: 'william', will: 'william', william: 'william',
-  rick: 'richard', dick: 'richard', richard: 'richard',
-  mike: 'michael', michael: 'michael',
+  dan: 'daniel', danny: 'daniel', daniel: 'daniel',
+  rob: 'robert', bob: 'robert', bobby: 'robert', robert: 'robert',
+  bill: 'william', will: 'william', willie: 'william', william: 'william',
+  rick: 'richard', ricky: 'richard', dick: 'richard', richard: 'richard',
+  mike: 'michael', mikey: 'michael', michael: 'michael',
   chris: 'christopher', christopher: 'christopher',
-  matt: 'matthew', matthew: 'matthew',
+  matt: 'matthew', matty: 'matthew', matthew: 'matthew',
   tony: 'anthony', anthony: 'anthony',
+  jim: 'james', jimmy: 'james', james: 'james',
+  joe: 'joseph', joey: 'joseph', joseph: 'joseph',
+  tom: 'thomas', tommy: 'thomas', thomas: 'thomas',
+  andy: 'andrew', drew: 'andrew', andrew: 'andrew',
+  jerry: 'gerald', gerald: 'gerald',
+  steve: 'steven', stevie: 'steven', steven: 'steven', stephen: 'steven',
+  pete: 'peter', peter: 'peter',
+  ed: 'edward', eddie: 'edward', edward: 'edward',
+  alex: 'alexander', alexander: 'alexander',
+  nick: 'nicholas', nicky: 'nicholas', nicholas: 'nicholas',
+  zach: 'zachary', zack: 'zachary', zachary: 'zachary',
+  ben: 'benjamin', benji: 'benjamin', benjamin: 'benjamin',
+  sam: 'samuel', sammy: 'samuel', samuel: 'samuel',
+  greg: 'gregory', gregory: 'gregory',
+  larry: 'lawrence', lawrence: 'lawrence',
 };
 // Suffix patterns (Jr/Sr/II/III/IV). The 2025 de-redacted CSV inconsistently places
 // these in either the last_name or first_name field (e.g., "Castro Jr." vs.
