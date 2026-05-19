@@ -206,19 +206,18 @@ async function migrate() {
       const k = norm(lastName) + '|' + stripMiddle(firstName);
       const matches = by2024.get(k);
       let badge = null, division = null, classification;
+      // Prefer the 2025 CSV's own Classification (stripped of "(Temp Up)" etc.)
+      // over the 2024 carry-forward, so promotions and demotions captured between
+      // 2024 and 2025 are reflected in the record's rank.
+      classification = rawClass ? baseRank(rawClass) : null;
       if (matches && matches.length >= 1) {
-        // Phase C uses badge as a tiebreaker; mirror that here even though CSV rows
-        // have no badge, so it falls through to matches[0] in the no-badge case.
         const target = matches[0];
         badge = target.badge_number || null;
         division = target.division || null;
-        classification = target.classification || (rawClass ? baseRank(rawClass) : null);
+        if (!classification) classification = target.classification;
         if (matches.length > 1) ambiguous2025++;
         matched2025++;
       } else {
-        // No 2024 match: normalize the CSV value through baseRank so we don't
-        // pollute the dataset with "(Temp Up)" / "(RM)" / etc. on 2025-only personnel.
-        classification = rawClass ? baseRank(rawClass) : null;
         unmatched2025++;
       }
 
@@ -296,7 +295,10 @@ async function migrate() {
         payrollNone++;
       }
 
-      const classification = carry2024 ? carry2024.classification : baseRank(r.rankTitle);
+      // Prefer the XLSX rank_title (stripped of parenthesized specialty) over
+      // 2024 carry-forward — the 2026 roster captures promotions and demotions
+      // (e.g., a 2024 "Police Officer" promoted to "Police Sergeant" by 2026).
+      const classification = baseRank(r.rankTitle) || (carry2024 ? carry2024.classification : null);
 
       rows2026.push({
         last_name: r.last,

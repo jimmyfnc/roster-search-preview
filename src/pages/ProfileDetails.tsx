@@ -156,10 +156,10 @@ const ProfileDetails = () => {
                 
                 {/* Enhanced Personnel Information - Clean Layout */}
                 <div className="flex flex-col gap-3 w-full max-w-md text-center lg:text-left">
-                  {person.classification && (
+                  {(person.rank_title || person.classification) && (
                     <div className="py-2">
                       <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">Rank</div>
-                      <div className="text-2xl font-bold text-foreground">{person.classification}</div>
+                      <div className="text-2xl font-bold text-foreground">{person.rank_title || person.classification}</div>
                     </div>
                   )}
                   
@@ -285,6 +285,15 @@ const ProfileDetails = () => {
                   <span className="text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Payout</span>
                   <p className="text-2xl font-bold text-foreground">
                     {formatCurrency(Number(person.payout))}
+                  </p>
+                </div>
+              )}
+
+              {person.other_pay != null && Number(person.other_pay) > 0 && (
+                <div className="border-l-4 border-foreground pl-6 py-2">
+                  <span className="text-sm font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Other Pay</span>
+                  <p className="text-2xl font-bold text-foreground">
+                    {formatCurrency(Number(person.other_pay))}
                   </p>
                 </div>
               )}
