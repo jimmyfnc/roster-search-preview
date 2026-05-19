@@ -63,16 +63,18 @@ const NICKNAME_TO_CANONICAL = {
   matt: 'matthew', matthew: 'matthew',
   tony: 'anthony', anthony: 'anthony',
 };
-// Last-name suffix patterns: "Espinoza II" -> "espinoza", "Castro Jr." -> "castro".
-// Mirrors the suffixPatterns array in src/utils/photoUtils.ts so dedup logic and
-// photo-lookup logic agree on what counts as a name suffix.
-const LAST_NAME_SUFFIX_RE = /\s+(jr\.?|junior|sr\.?|senior|i{1,3}|iv|2nd|3rd|4th)$/i;
-function stripLastSuffix(s) {
-  return norm(s).replace(LAST_NAME_SUFFIX_RE, '');
+// Suffix patterns (Jr/Sr/II/III/IV). The 2025 de-redacted CSV inconsistently places
+// these in either the last_name or first_name field (e.g., "Castro Jr." vs.
+// "Jorge Jr Castro"). The canonical key strips them from BOTH fields so the
+// two name shapes converge.
+const NAME_SUFFIX_RE = /\s+(jr\.?|junior|sr\.?|senior|i{1,3}|iv|2nd|3rd|4th)$/i;
+function stripSuffix(s) {
+  return norm(s).replace(NAME_SUFFIX_RE, '');
 }
 function canonicalNameKey(lastName, firstName) {
-  const ln = stripLastSuffix(lastName);
-  let fn = stripMiddle(firstName);
+  const ln = stripSuffix(lastName);
+  // Strip suffix from first name first (handles "Jorge Jr"), then trailing initial.
+  let fn = stripSuffix(firstName).replace(/\s+[a-z]\.?$/i, '');
   if (NICKNAME_TO_CANONICAL[fn]) fn = NICKNAME_TO_CANONICAL[fn];
   return ln + '|' + fn;
 }

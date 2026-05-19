@@ -133,10 +133,10 @@ const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false 
     rick: 'richard', dick: 'richard', mike: 'michael', chris: 'christopher',
     matt: 'matthew', tony: 'anthony',
   };
-  const LAST_SUFFIX_RE = /\s+(jr\.?|junior|sr\.?|senior|i{1,3}|iv|2nd|3rd|4th)$/i;
+  const SUFFIX_RE = /\s+(jr\.?|junior|sr\.?|senior|i{1,3}|iv|2nd|3rd|4th)$/i;
   const canon = (last, first) => {
-    const ln = (last || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(LAST_SUFFIX_RE, '');
-    let fn = (first || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(/\s+[a-z]\.?$/i, '');
+    const ln = (last || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(SUFFIX_RE, '');
+    let fn = (first || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(SUFFIX_RE, '').replace(/\s+[a-z]\.?$/i, '');
     if (NICKNAMES[fn]) fn = NICKNAMES[fn];
     return ln + '|' + fn;
   };
