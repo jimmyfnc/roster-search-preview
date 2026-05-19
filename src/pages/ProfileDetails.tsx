@@ -222,6 +222,7 @@ const ProfileDetails = () => {
           {/* Data Disclaimer */}
           <div className="px-8 py-4 bg-secondary border-t border-border">
             <p className="text-sm text-muted-foreground text-center">
+              <span className="font-semibold">Disclaimer:</span>{' '}
               {person.roster_year && (
                 <>
                   Roster data as of {person.roster_year === 2026 ? 'January 2026' : person.roster_year}.
