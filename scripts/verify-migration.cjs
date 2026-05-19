@@ -90,8 +90,10 @@ const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false 
   `);
   console.log('  Unique constraints: ' + cons.rows.map(r => r.conname).join(', '));
 
-  // 8. Invariant: for each named person, the row tagged is_current=true has the
-  // MAX(roster_year). Catches regressions in Phase D's PARTITION BY normalization.
+  // 8. Invariant: for each stripped-name partition that HAS an is_current row, that
+  // row must be on the latest roster_year for the partition. (Partitions where no
+  // is_current row exists are fine — Phase E may have moved currency to a sibling
+  // partition under nickname-aware grouping; case 8b catches those.)
   const invariant = await pool.query(`
     WITH per_person AS (
       SELECT
@@ -105,11 +107,50 @@ const pool = new Pool({ connectionString: url, ssl: { rejectUnauthorized: false 
     )
     SELECT COUNT(*)::int AS violations
     FROM per_person
-    WHERE current_year IS DISTINCT FROM max_year
+    WHERE current_year IS NOT NULL AND current_year <> max_year
   `);
   const v = invariant.rows[0].violations;
   console.log('\nlatest-per-person invariant violations (should be 0): ' + v);
-  if (v > 0) console.log('  WARN: some named persons have is_current=true on a NON-latest year');
+  if (v > 0) console.log('  WARN: some named persons have is_current=true on a NON-latest year within their stripped-name partition');
+
+  // 8b. Invariant: no two is_current=true records share a badge_number, and no two share
+  // a nickname-aware canonical name (Dan/Daniel, Mike/Michael, etc. should be one record).
+  const badgeDupes = await pool.query(`
+    SELECT badge_number, COUNT(*)::int AS n FROM personnel
+     WHERE is_current = true AND badge_number IS NOT NULL
+     GROUP BY badge_number HAVING COUNT(*) > 1
+  `);
+  console.log('Same-badge is_current dupes (should be 0): ' + badgeDupes.rows.length);
+  for (const r of badgeDupes.rows) console.log('  badge ' + r.badge_number + ': ' + r.n);
+
+  // Nickname dedup must be checked in JS because SQL doesn't know the nickname map.
+  const named = await pool.query(`
+    SELECT id, last_name, first_name FROM personnel
+     WHERE is_current = true AND last_name NOT LIKE 'XXXX%'
+  `);
+  const NICKNAMES = {
+    dan: 'daniel', rob: 'robert', bob: 'robert', bill: 'william', will: 'william',
+    rick: 'richard', dick: 'richard', mike: 'michael', chris: 'christopher',
+    matt: 'matthew', tony: 'anthony',
+  };
+  const canon = (last, first) => {
+    const ln = (last || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    let fn = (first || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(/\s+[a-z]\.?$/i, '');
+    if (NICKNAMES[fn]) fn = NICKNAMES[fn];
+    return ln + '|' + fn;
+  };
+  const byCanon = new Map();
+  for (const r of named.rows) {
+    const k = canon(r.last_name, r.first_name);
+    if (!byCanon.has(k)) byCanon.set(k, []);
+    byCanon.get(k).push(r);
+  }
+  const nameDupes = [...byCanon.entries()].filter(([, rows]) => rows.length > 1);
+  console.log('Nickname-aware name dupes (should be 0): ' + nameDupes.length);
+  for (const [k, rows] of nameDupes) {
+    console.log('  ' + k + ':');
+    for (const r of rows) console.log('    -> ' + r.first_name + ' ' + r.last_name);
+  }
 
   // 9. Invariant: payroll_year is set iff at least one pay field is non-null.
   const payInvariant = await pool.query(`

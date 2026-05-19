@@ -51,6 +51,25 @@ const baseRank = s => {
 };
 const anyNonNull = arr => arr.some(v => v != null);
 
+// Nickname → canonical first name, mirrors src/utils/photoUtils.ts nicknameMap.
+// Used in Phase E to recognize "Dan Baek" and "Daniel S. Baek" as the same person.
+const NICKNAME_TO_CANONICAL = {
+  dan: 'daniel', daniel: 'daniel',
+  rob: 'robert', bob: 'robert', robert: 'robert',
+  bill: 'william', will: 'william', william: 'william',
+  rick: 'richard', dick: 'richard', richard: 'richard',
+  mike: 'michael', michael: 'michael',
+  chris: 'christopher', christopher: 'christopher',
+  matt: 'matthew', matthew: 'matthew',
+  tony: 'anthony', anthony: 'anthony',
+};
+function canonicalNameKey(lastName, firstName) {
+  const ln = norm(lastName);
+  let fn = stripMiddle(firstName);
+  if (NICKNAME_TO_CANONICAL[fn]) fn = NICKNAME_TO_CANONICAL[fn];
+  return ln + '|' + fn;
+}
+
 // Generic chunked multi-row INSERT. Postgres has a ~32k bind-param ceiling; we cap chunks
 // so we never approach it. Avoids the per-row round-trip cost on remote Neon connections.
 async function batchInsert(client, table, columns, rows, chunkSize = 100) {
@@ -337,6 +356,85 @@ async function migrate() {
        WHERE roster_year = 2026 AND last_name LIKE 'XXXX%'
     `);
     console.log('Phase D: marked ' + redactedUpdate.rowCount + ' redacted 2026 records as is_current=true');
+
+    // ---- Phase E: nickname/badge-aware dedup ----
+    // Phase D partitions by stripped name, but "Dan Baek" (2026) and "Daniel S. Baek"
+    // (2025) end up in DIFFERENT partitions because the strip rule only handles trailing
+    // single-letter initials, not nicknames. Same problem with Mike/Michael, Bob/Robert,
+    // etc. Same-badge across years (e.g., name-change cases like Booth/Ramsey at 3800)
+    // also slip through Phase D since the names differ entirely.
+    //
+    // This phase loads all named is_current=true records, groups them via union-find
+    // on shared badge OR shared canonical-with-nickname name, and keeps only the
+    // latest year per group. Older records flip back to is_current=false.
+    const currentNamed = await client.query(`
+      SELECT id, last_name, first_name, badge_number, roster_year
+        FROM personnel
+       WHERE is_current = true AND last_name NOT LIKE 'XXXX%'
+    `);
+
+    // Union-find over (badge OR canonical-name) equivalence.
+    const parent = new Map();
+    const find = (x) => {
+      let r = x;
+      while (parent.get(r) !== r) r = parent.get(r);
+      // path compression
+      let cur = x;
+      while (parent.get(cur) !== r) { const nxt = parent.get(cur); parent.set(cur, r); cur = nxt; }
+      return r;
+    };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+
+    for (const row of currentNamed.rows) parent.set(row.id, row.id);
+
+    // Group by badge (treats null as not-a-group).
+    const byBadge = new Map();
+    for (const row of currentNamed.rows) {
+      if (!row.badge_number) continue;
+      if (!byBadge.has(row.badge_number)) byBadge.set(row.badge_number, []);
+      byBadge.get(row.badge_number).push(row.id);
+    }
+    for (const [, ids] of byBadge) {
+      for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+    }
+
+    // Group by canonical (nickname-mapped) name.
+    const byCanonical = new Map();
+    for (const row of currentNamed.rows) {
+      const k = canonicalNameKey(row.last_name, row.first_name);
+      if (!byCanonical.has(k)) byCanonical.set(k, []);
+      byCanonical.get(k).push(row.id);
+    }
+    for (const [, ids] of byCanonical) {
+      for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+    }
+
+    // Collect groups; for each group with size > 1, keep one winner (latest roster_year).
+    const groups = new Map();
+    for (const row of currentNamed.rows) {
+      const r = find(row.id);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(row);
+    }
+    const losers = [];
+    let mergedGroups = 0;
+    for (const [, members] of groups) {
+      if (members.length < 2) continue;
+      mergedGroups++;
+      members.sort((a, b) => (b.roster_year - a.roster_year) || (a.id < b.id ? 1 : -1));
+      const [winner, ...rest] = members;
+      console.log(`  Merging group: keeping ${winner.first_name} ${winner.last_name} ` +
+                  `#${winner.badge_number || '(no badge)'} year=${winner.roster_year}; ` +
+                  `flipping ${rest.length}:`);
+      for (const r of rest) {
+        console.log(`    -> ${r.first_name} ${r.last_name} #${r.badge_number || '(no badge)'} year=${r.roster_year}`);
+        losers.push(r.id);
+      }
+    }
+    if (losers.length > 0) {
+      await client.query('UPDATE personnel SET is_current = false WHERE id = ANY($1::uuid[])', [losers]);
+    }
+    console.log('\nPhase E: collapsed ' + mergedGroups + ' duplicate groups; ' + losers.length + ' records flipped to is_current=false');
 
     // ---- Verification ----
     const summary = await client.query(`
