@@ -222,9 +222,18 @@ const ProfileDetails = () => {
           {/* Data Disclaimer */}
           <div className="px-8 py-4 bg-secondary border-t border-border">
             <p className="text-sm text-muted-foreground text-center">
+              {person.roster_year && (
+                <>
+                  Roster data is current as of {person.roster_year === 2026 ? 'January 2026' : person.roster_year}.
+                  {person.roster_year < 2026 && (
+                    <> This person did not appear on the latest (January 2026) roster.</>
+                  )}
+                  <br />
+                </>
+              )}
               {person.payroll_year
-                ? `Disclaimer: Payroll data is current as of ${person.payroll_year}.`
-                : 'Disclaimer: No payroll data available for this record.'}
+                ? `Payroll data is current as of ${person.payroll_year}.`
+                : 'No payroll data available for this record.'}
             </p>
           </div>
           

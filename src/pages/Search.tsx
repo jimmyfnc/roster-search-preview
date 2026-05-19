@@ -232,16 +232,16 @@ const Search = () => {
       <div className="container mx-auto px-4 py-4 sm:py-6">
         <div className="mb-8 text-center">
           <h1 className="text-4xl sm:text-5xl font-bold text-foreground mb-2">No Secret Police</h1>
-          <p className="text-lg text-muted-foreground">A public records database</p>
+          <p className="text-lg text-muted-foreground">A public records database by Inadvertent.</p>
         </div>
 
-        <div className="max-w-2xl mx-auto mb-8">
+        <div className="max-w-2xl mx-auto mb-4">
           <div className="flex gap-2">
             <div className="flex-1 relative">
               <Input
                 type="text"
                 inputMode="search"
-                placeholder={getPlaceholder("First name, last name, or badge number", "First or Last Name or Badge #")}
+                placeholder={getPlaceholder("Enter a name or badge number to search for an officer", "Name or badge number")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={handleKeyPress}
@@ -266,6 +266,23 @@ const Search = () => {
             >
               <SearchIcon className="h-5 w-5" />
             </Button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
+            <Link
+              to="/roster"
+              className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline font-medium"
+            >
+              View full roster
+            </Link>
+            <span aria-hidden>·</span>
+            <a
+              href="https://www.google.com/maps/d/u/0/viewer?mid=1EwFeKUgF0puu7dpTqgAdXc_qfDawtuQ7"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline font-medium"
+            >
+              View zip code interactive map
+            </a>
           </div>
         </div>
 
@@ -297,19 +314,6 @@ const Search = () => {
           </div>
         )}
 
-        {!hasSearchCriteria && (
-          <div className="mt-8 text-center">
-            <p className="text-lg text-muted-foreground">
-              View full roster{" "}
-              <Link
-                to="/roster"
-                className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline font-medium"
-              >
-                here
-              </Link>
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

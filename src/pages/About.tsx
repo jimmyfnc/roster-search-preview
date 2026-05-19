@@ -1,15 +1,15 @@
 const About = () => {
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-4">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
+          <div className="text-center mb-6">
             <h1 className="text-4xl font-bold mb-2 text-inadvertent-yellow">About</h1>
           </div>
-            
+
             <div className="bg-card p-8 rounded-lg shadow-md border border-border">
               <p className="mb-6">
-                No Secret Police is a public records database created by <a href="https://inadvertent.substack.com/" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">Inadvertent</a>.
+                No Secret Police is a public records database created by <a href="https://www.inadvertent.news" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">Inadvertent</a>.
               </p>
               
               <p className="mb-6">
@@ -44,12 +44,12 @@ const About = () => {
 
               <h2 className="text-2xl font-bold mb-4 text-inadvertent-yellow">Is this up to date?</h2>
               <p className="mb-6">
-                Roster data for the SAPD is current as of 2026. Payroll data varies per record, ranging from 2024 to 2025, depending on the most recent year for which the city has released that personnel's compensation data. Each profile shows the specific year its payroll reflects. The database is entirely based on the city's data so if you see that something is wrong, it is because updated data has not been released by the city.
+                Roster data for the SAPD is current as of January 2026. Payroll data is current as of 2025, with some records showing 2024 figures where the city has not yet released the personnel's 2025 compensation. Each profile shows the specific roster and payroll year its data reflects. Personnel who appeared on an earlier roster but not the latest are retained in the database so their public records remain searchable; their profiles disclose the year of the most recent roster they appeared on. The database is entirely based on the city's data, so if you see that something is wrong, it is because updated data has not been released by the city.
               </p>
 
               <h2 className="text-2xl font-bold mb-4 text-inadvertent-yellow">How can I support this project?</h2>
               <p className="mb-6">
-                Maintaining this database is laborious. You can become a <a href="https://inadvertent.substack.com/" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">paid subscriber to Inadvertent</a> to ensure that the database stays in working condition and continues to be updated. If you would like to make a one-time donation use <a href="https://ko-fi.com/inadvertent" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">this link</a>.
+                Maintaining this database is laborious. You can become a <a href="https://inadvertent.substack.com/" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">paid subscriber to Inadvertent</a> to ensure that the database stays in working condition and continues to be updated. You can also <a href="https://inadvertent.substack.com/p/contact" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">reach out to Inadvertent</a> if you would like to make a one-time donation.
               </p>
             </div>
           </div>
