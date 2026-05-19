@@ -287,13 +287,19 @@ async function migrate() {
         payroll_year: payrollYear,
       });
     }
-    for (const r of redactedXlsx) {
+    // Sort redacted rows by XLSX rowNumber so the assigned REDACTED-NNN IDs are stable
+    // across re-runs (the XLSX row order doesn't change between migration runs).
+    const redactedSorted = [...redactedXlsx].sort((a, b) => a.rowNumber - b.rowNumber);
+    redactedSorted.forEach((r, i) => {
+      const idNumber = String(i + 1).padStart(3, '0');
       // Names stay as the literal XLSX "XXXXXXX" strings to satisfy NOT NULL.
-      // No payroll for redacted rows (can't join), so payroll_year stays NULL.
+      // badge_number gets a stable REDACTED-NNN identifier so the 31 anonymous
+      // records can be distinguished from each other in the UI and so photos
+      // can be dropped in later under a matching filename.
       rows2026.push({
         last_name: r.last || 'XXXXXXX',
         first_name: r.first || 'XXXXXXX',
-        badge_number: null,
+        badge_number: 'REDACTED-' + idNumber,
         classification: baseRank(r.rankTitle),
         division: r.division,
         regular_pay: null,
@@ -312,7 +318,7 @@ async function migrate() {
         is_current: false,
         payroll_year: null,
       });
-    }
+    });
 
     const inserted2026 = await batchInsert(
       client,

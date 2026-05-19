@@ -112,6 +112,21 @@ function generatePhotoVariations(person: Personnel): string[] {
     return compoundVariations;
   };
   
+  // Redacted personnel (XXXXXXX names) get assigned REDACTED-NNN badge identifiers
+  // by the migration. Their photo filename should be a clean "redacted-007.webp"
+  // pattern rather than the awkward "xxxxxxx_xxxxxxx_redacted-007.webp" that the
+  // generic logic below would produce. If Ben sends photos for these entries later,
+  // they can be dropped in under the simple pattern.
+  const isRedactedPlaceholder = /^X+$/i.test(lastName.replace(/\s+/g, ''));
+  if (isRedactedPlaceholder && person.badge_number && /^REDACTED-/i.test(person.badge_number)) {
+    const idLower = person.badge_number.toLowerCase();
+    const idUpper = person.badge_number.toUpperCase();
+    for (const ext of ['.webp', '.webpX']) {
+      variations.push(`/photos/${idLower}${ext}`);
+      variations.push(`/photos/${idUpper}${ext}`);
+    }
+  }
+
   // Generate variations with badge number for both .webp and .webpX extensions
   if (person.badge_number) {
     const extensions = ['.webp', '.webpX'];
@@ -231,9 +246,20 @@ function generatePhotoVariations(person: Personnel): string[] {
     
     const formattedLastName = formatName(lastName);
     variations.push(`/photos/${formattedLastName}_${formattedFirstName}${ext}`);
-    
+
     if (suffixVariation) {
       variations.push(`/photos/${formattedBaseLastName}_${formattedFirstName}${ext}`);
+    }
+
+    // Also try a stripped-middle-initial variant in the no-badge fallback. Catches
+    // de-redacted 2025 personnel like "James H. Babinski" who have no badge but
+    // could plausibly have a photo file under the base "babinski_james.webp" name.
+    const strippedFirstNoB = formattedFirstName.replace(/_[a-z]\.?$/i, '');
+    if (strippedFirstNoB && strippedFirstNoB !== formattedFirstName) {
+      variations.push(`/photos/${formattedLastName}_${strippedFirstNoB}${ext}`);
+      if (suffixVariation) {
+        variations.push(`/photos/${formattedBaseLastName}_${strippedFirstNoB}${ext}`);
+      }
     }
   }
   
