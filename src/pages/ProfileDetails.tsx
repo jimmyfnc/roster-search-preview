@@ -224,7 +224,7 @@ const ProfileDetails = () => {
             <p className="text-sm text-muted-foreground text-center">
               {person.roster_year && (
                 <>
-                  Roster data is current as of {person.roster_year === 2026 ? 'January 2026' : person.roster_year}.
+                  Roster data as of {person.roster_year === 2026 ? 'January 2026' : person.roster_year}.
                   {person.roster_year < 2026 && (
                     <> This person did not appear on the latest (January 2026) roster.</>
                   )}
@@ -232,7 +232,7 @@ const ProfileDetails = () => {
                 </>
               )}
               {person.payroll_year
-                ? `Payroll data is current as of ${person.payroll_year}.`
+                ? `Payroll data as of ${person.payroll_year}.`
                 : 'No payroll data available for this record.'}
             </p>
           </div>
