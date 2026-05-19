@@ -63,8 +63,15 @@ const NICKNAME_TO_CANONICAL = {
   matt: 'matthew', matthew: 'matthew',
   tony: 'anthony', anthony: 'anthony',
 };
+// Last-name suffix patterns: "Espinoza II" -> "espinoza", "Castro Jr." -> "castro".
+// Mirrors the suffixPatterns array in src/utils/photoUtils.ts so dedup logic and
+// photo-lookup logic agree on what counts as a name suffix.
+const LAST_NAME_SUFFIX_RE = /\s+(jr\.?|junior|sr\.?|senior|i{1,3}|iv|2nd|3rd|4th)$/i;
+function stripLastSuffix(s) {
+  return norm(s).replace(LAST_NAME_SUFFIX_RE, '');
+}
 function canonicalNameKey(lastName, firstName) {
-  const ln = norm(lastName);
+  const ln = stripLastSuffix(lastName);
   let fn = stripMiddle(firstName);
   if (NICKNAME_TO_CANONICAL[fn]) fn = NICKNAME_TO_CANONICAL[fn];
   return ln + '|' + fn;
@@ -136,15 +143,18 @@ async function migrate() {
     }
     console.log('Loaded ' + baseline2024.rows.length + ' baseline 2024 records (' + by2024.size + ' unique name keys)');
 
-    // Build a 2025 payroll lookup keyed by stripped name. Used by Phase C to prefer
-    // 2025 payroll over 2024 carry-forward when populating 2026 records.
+    // Build a 2025 payroll lookup keyed by canonical name (suffix-stripped +
+    // nickname-mapped). Used by Phase C to prefer 2025 payroll over 2024 carry-forward
+    // when populating 2026 records. The canonical key lets "Roberto Espinoza II"
+    // (2026) find "Roberto Espinoza" (2025) and "Dan Padron" (2026) find "Daniel J.
+    // Padron" (2025) — same person, different name shapes across sources.
     const by2025 = new Map();
     let collisions2025 = 0;
     for (const row of csv2025) {
-      const k = norm(row['Last Name']) + '|' + stripMiddle(row['First Name']);
+      const k = canonicalNameKey(row['Last Name'], row['First Name']);
       if (by2025.has(k)) {
         collisions2025++;
-        console.warn('  WARN: duplicate name in 2025 CSV, keeping first: ' + row['Last Name'] + ', ' + row['First Name']);
+        console.warn('  WARN: duplicate canonical name in 2025 CSV, keeping first: ' + row['Last Name'] + ', ' + row['First Name']);
         continue;
       }
       by2025.set(k, {
@@ -230,9 +240,15 @@ async function migrate() {
     const rows2026 = [];
     let payrollFrom2025 = 0, payrollFrom2024 = 0, payrollNone = 0;
     for (const r of namedXlsx) {
-      const k = norm(r.last) + '|' + stripMiddle(r.first);
-      const pay2025 = by2025.get(k);
-      const matches2024 = by2024.get(k);
+      // 2024 lookup uses the strict middle-initial-stripped key (preserves exact
+      // last-name shape, so "Espinoza II" in 2026 finds "Espinoza II" in 2024).
+      const strictKey = norm(r.last) + '|' + stripMiddle(r.first);
+      // 2025 lookup uses the broader canonical key (suffix-stripped + nickname-mapped)
+      // because the 2025 payroll CSV often drops last-name suffixes
+      // ("Espinoza II" -> "Espinoza") and uses nicknames inconsistently.
+      const canonKey = canonicalNameKey(r.last, r.first);
+      const pay2025 = by2025.get(canonKey);
+      const matches2024 = by2024.get(strictKey);
       const carry2024 = (matches2024 && matches2024.length > 0)
         ? (matches2024.find(m => r.badge && m.badge_number === r.badge) || matches2024[0])
         : null;
