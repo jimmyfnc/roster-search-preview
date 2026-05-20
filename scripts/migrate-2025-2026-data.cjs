@@ -78,7 +78,31 @@ const NICKNAME_TO_CANONICAL = {
   sam: 'samuel', sammy: 'samuel', samuel: 'samuel',
   greg: 'gregory', gregory: 'gregory',
   larry: 'lawrence', lawrence: 'lawrence',
+  charlie: 'charles', chuck: 'charles', charles: 'charles',
 };
+
+// Particles that should NOT be treated as the primary surname when reducing
+// compound last names. e.g., "Van Luven" shouldn't reduce to "van".
+const SURNAME_PARTICLES = new Set([
+  'de', 'del', 'la', 'las', 'los', 'van', 'von', 'der', 'di', 'da', 'el', 'do', 'le', 'mac', 'mc',
+]);
+
+// "Gonzalez Solache" -> "gonzalez". For Hispanic compound surnames, lets us
+// match a 2025 payroll record using the full surname against the 2026 roster
+// using just the paternal surname.
+function firstSurnameWord(lastName) {
+  const ln = stripSuffix(lastName);
+  const parts = ln.split(/\s+/);
+  if (parts.length <= 1) return ln;
+  if (SURNAME_PARTICLES.has(parts[0])) return ln; // keep "Van Luven" intact
+  return parts[0];
+}
+function shortCanonicalNameKey(lastName, firstName) {
+  const ln = firstSurnameWord(lastName);
+  let fn = stripSuffix(firstName).replace(/\s+[a-z]\.?$/i, '');
+  if (NICKNAME_TO_CANONICAL[fn]) fn = NICKNAME_TO_CANONICAL[fn];
+  return ln + '|' + fn;
+}
 // Suffix patterns (Jr/Sr/II/III/IV). The 2025 de-redacted CSV inconsistently places
 // these in either the last_name or first_name field (e.g., "Castro Jr." vs.
 // "Jorge Jr Castro"). The canonical key strips them from BOTH fields so the
@@ -409,18 +433,20 @@ async function migrate() {
     // This phase loads all named is_current=true records, groups them via union-find
     // on shared badge OR shared canonical-with-nickname name, and keeps only the
     // latest year per group. Older records flip back to is_current=false.
+    // Load the fields needed both for grouping AND for inheritance to the winner.
     const currentNamed = await client.query(`
-      SELECT id, last_name, first_name, badge_number, roster_year
+      SELECT id, last_name, first_name, badge_number, classification, division,
+             gender, ethnicity, height, weight, year_of_hire, rank_title,
+             roster_year
         FROM personnel
        WHERE is_current = true AND last_name NOT LIKE 'XXXX%'
     `);
 
-    // Union-find over (badge OR canonical-name) equivalence.
+    // Union-find over (badge OR canonical-name OR short-canonical-name) equivalence.
     const parent = new Map();
     const find = (x) => {
       let r = x;
       while (parent.get(r) !== r) r = parent.get(r);
-      // path compression
       let cur = x;
       while (parent.get(cur) !== r) { const nxt = parent.get(cur); parent.set(cur, r); cur = nxt; }
       return r;
@@ -440,7 +466,7 @@ async function migrate() {
       for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
     }
 
-    // Group by canonical (nickname-mapped) name.
+    // Group by canonical (nickname-mapped, suffix-stripped) name.
     const byCanonical = new Map();
     for (const row of currentNamed.rows) {
       const k = canonicalNameKey(row.last_name, row.first_name);
@@ -448,6 +474,19 @@ async function migrate() {
       byCanonical.get(k).push(row.id);
     }
     for (const [, ids] of byCanonical) {
+      for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+    }
+
+    // Group by short canonical (compound-surname reduced to first surname word).
+    // Catches "Victor Rodriguez" (2026) ↔ "Victor A. Rodriguez Godinez" (2025 payroll
+    // with maternal surname), and similar Hispanic-naming cases.
+    const byShortCanonical = new Map();
+    for (const row of currentNamed.rows) {
+      const k = shortCanonicalNameKey(row.last_name, row.first_name);
+      if (!byShortCanonical.has(k)) byShortCanonical.set(k, []);
+      byShortCanonical.get(k).push(row.id);
+    }
+    for (const [, ids] of byShortCanonical) {
       for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
     }
 
@@ -459,7 +498,13 @@ async function migrate() {
       groups.get(r).push(row);
     }
     const losers = [];
+    const winnerInheritances = []; // [{ winnerId, patch: { field: value, ... } }, ...]
     let mergedGroups = 0;
+    // Fields where the winner should inherit a non-null value from a loser if the
+    // winner itself has null. Payroll fields are intentionally NOT in this list —
+    // latest year's payroll is the canonical source.
+    const INHERITABLE_FIELDS = ['badge_number', 'division', 'classification',
+      'gender', 'ethnicity', 'height', 'weight', 'year_of_hire', 'rank_title'];
     for (const [, members] of groups) {
       if (members.length < 2) continue;
       mergedGroups++;
@@ -468,15 +513,55 @@ async function migrate() {
       console.log(`  Merging group: keeping ${winner.first_name} ${winner.last_name} ` +
                   `#${winner.badge_number || '(no badge)'} year=${winner.roster_year}; ` +
                   `flipping ${rest.length}:`);
+      // Build inheritance patch for fields the winner is missing.
+      const patch = {};
+      for (const f of INHERITABLE_FIELDS) {
+        if (winner[f] != null) continue;
+        for (const loser of rest) {
+          if (loser[f] != null) {
+            patch[f] = loser[f];
+            winner[f] = loser[f]; // mirror in memory so later groups see the updated state
+            break;
+          }
+        }
+      }
+      if (Object.keys(patch).length > 0) {
+        winnerInheritances.push({ winnerId: winner.id, patch });
+        const summary = Object.entries(patch).map(([k, v]) => `${k}=${v}`).join(', ');
+        console.log(`    (inherited from loser: ${summary})`);
+      }
       for (const r of rest) {
         console.log(`    -> ${r.first_name} ${r.last_name} #${r.badge_number || '(no badge)'} year=${r.roster_year}`);
         losers.push(r.id);
       }
     }
+    // Apply inheritance patches first (winners), then flip losers.
+    for (const { winnerId, patch } of winnerInheritances) {
+      const setClauses = Object.keys(patch).map((k, i) => `${k} = $${i + 2}`).join(', ');
+      await client.query(`UPDATE personnel SET ${setClauses} WHERE id = $1`, [winnerId, ...Object.values(patch)]);
+    }
     if (losers.length > 0) {
       await client.query('UPDATE personnel SET is_current = false WHERE id = ANY($1::uuid[])', [losers]);
     }
-    console.log('\nPhase E: collapsed ' + mergedGroups + ' duplicate groups; ' + losers.length + ' records flipped to is_current=false');
+    console.log('\nPhase E: collapsed ' + mergedGroups + ' duplicate groups; ' +
+                losers.length + ' records flipped to is_current=false; ' +
+                winnerInheritances.length + ' winners inherited fields from losers');
+
+    // ---- Phase F: one-off display tweaks ----
+    // Specific display name customizations requested by the client. These run after
+    // dedup so they target the surviving is_current=true record.
+
+    // Charles "Charlie" Ruelas — Ben wants the nickname inline in his displayed name.
+    const ruelasUpdate = await client.query(`
+      UPDATE personnel
+         SET first_name = 'Charles "Charlie"'
+       WHERE last_name = 'Ruelas'
+         AND is_current = true
+         AND (first_name = 'Charlie' OR first_name = 'Charles')
+    `);
+    if (ruelasUpdate.rowCount > 0) {
+      console.log('\nPhase F: applied display tweaks (Ruelas nickname display, ' + ruelasUpdate.rowCount + ' row)');
+    }
 
     // ---- Verification ----
     const summary = await client.query(`

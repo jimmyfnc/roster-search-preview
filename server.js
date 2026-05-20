@@ -85,10 +85,15 @@ app.use('/api', apiRateLimit); // Apply rate limiting to all API routes
 // Serve static files from dist directory
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Filter applied to every listing endpoint to suppress fully-redacted personnel
+// (last_name="XXXXXXX") from the public-facing roster/search results. Direct profile
+// lookups by id still resolve so deep links keep working.
+const VISIBLE_FILTER = "is_current = true AND last_name NOT LIKE 'XXXX%'";
+
 // API Routes
 app.get('/api/personnel', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM personnel WHERE is_current = true ORDER BY last_name ASC');
+    const result = await pool.query(`SELECT * FROM personnel WHERE ${VISIBLE_FILTER} ORDER BY last_name ASC`);
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching personnel:', error);
@@ -117,7 +122,7 @@ app.post('/api/personnel/search', async (req, res) => {
     const pageSize = Math.min(100, Math.max(1, parseInt(req.body.pageSize) || 20));
 
     // Build WHERE conditions and parameters
-    const whereConditions = ['is_current = true'];
+    const whereConditions = ["is_current = true", "last_name NOT LIKE 'XXXX%'"];
     const queryParams = [];
     let paramCount = 0;
 
@@ -210,7 +215,7 @@ app.post('/api/personnel/search', async (req, res) => {
 
 app.get('/api/personnel-filter-options', async (req, res) => {
   try {
-    const result = await pool.query("SELECT DISTINCT division, classification FROM personnel WHERE is_current = true AND (division IS NOT NULL OR classification IS NOT NULL)");
+    const result = await pool.query(`SELECT DISTINCT division, classification FROM personnel WHERE ${VISIBLE_FILTER} AND (division IS NOT NULL OR classification IS NOT NULL)`);
     
     const divisions = [...new Set(result.rows?.map(p => p.division).filter(Boolean))];
     const classifications = [...new Set(result.rows?.map(p => p.classification).filter(Boolean))];
@@ -268,7 +273,7 @@ app.post('/api/personnel/all', async (req, res) => {
     const pageSize = Math.min(100, Math.max(1, parseInt(req.body.pageSize) || 20));
 
     // Get total count for pagination
-    const countResult = await pool.query('SELECT COUNT(*) as count FROM personnel WHERE is_current = true');
+    const countResult = await pool.query(`SELECT COUNT(*) as count FROM personnel WHERE ${VISIBLE_FILTER}`);
     const totalCount = parseInt(countResult.rows[0].count) || 0;
 
     // Build the main query with sorting
@@ -288,7 +293,7 @@ app.post('/api/personnel/all', async (req, res) => {
     const startIndex = (page - 1) * pageSize;
     const query = `
       SELECT * FROM personnel
-      WHERE is_current = true
+      WHERE ${VISIBLE_FILTER}
       ${orderClause}
       LIMIT $1 OFFSET $2
     `;
@@ -314,14 +319,14 @@ app.post('/api/personnel/search-simple', async (req, res) => {
     const { searchTerm } = req.body;
     
     if (!searchTerm?.trim()) {
-      const result = await pool.query('SELECT * FROM personnel WHERE is_current = true ORDER BY last_name ASC');
+      const result = await pool.query(`SELECT * FROM personnel WHERE ${VISIBLE_FILTER} ORDER BY last_name ASC`);
       return res.json(result.rows);
     }
 
     const searchPattern = `%${searchTerm}%`;
     const result = await pool.query(
       `SELECT * FROM personnel
-       WHERE is_current = true AND (
+       WHERE ${VISIBLE_FILTER} AND (
           last_name ILIKE $1
           OR first_name ILIKE $1
           OR badge_number ILIKE $1
@@ -346,7 +351,7 @@ app.post('/api/personnel/stats', async (req, res) => {
       const { division, classification, sortBy = 'total_compensation' } = filters;
       const limit = Math.min(500, Math.max(1, parseInt(filters.limit) || 50));
 
-      let whereClause = 'is_current = true';
+      let whereClause = VISIBLE_FILTER;
       const params = [];
       let paramCount = 0;
 
@@ -373,11 +378,11 @@ app.post('/api/personnel/stats', async (req, res) => {
       res.json(result.rows);
 
     } else if (type === 'aggregates') {
-      const result = await pool.query('SELECT * FROM personnel WHERE is_current = true');
+      const result = await pool.query(`SELECT * FROM personnel WHERE ${VISIBLE_FILTER}`);
       res.json(result.rows);
 
     } else if (type === 'unique-values') {
-      const result = await pool.query('SELECT DISTINCT division, classification FROM personnel WHERE is_current = true');
+      const result = await pool.query(`SELECT DISTINCT division, classification FROM personnel WHERE ${VISIBLE_FILTER}`);
       res.json(result.rows);
       
     } else {

@@ -223,18 +223,34 @@ const ProfileDetails = () => {
           <div className="px-8 py-4 bg-secondary border-t border-border">
             <p className="text-sm text-muted-foreground text-center">
               <span className="font-semibold">Disclaimer:</span>{' '}
-              {person.roster_year && (
-                <>
-                  Roster data as of {person.roster_year === 2026 ? 'January 2026' : person.roster_year}.
-                  {person.roster_year < 2026 && (
-                    <> This person did not appear on the latest (January 2026) roster.</>
-                  )}
-                  <br />
-                </>
-              )}
-              {person.payroll_year
-                ? `Payroll data as of ${person.payroll_year}.`
-                : 'No payroll data available for this record.'}
+              {(() => {
+                // Some records came in via the 2025 payroll CSV alone (no badge, no
+                // division, no demographics — i.e., de-redacted personnel who don't
+                // appear on any actual roster). Those shouldn't claim "roster data as
+                // of YYYY" because we don't have real roster data for them.
+                const hasRosterData = !!(person.badge_number || person.division || person.gender || person.height || person.year_of_hire);
+                return (
+                  <>
+                    {hasRosterData && person.roster_year ? (
+                      <>
+                        Roster data as of {person.roster_year === 2026 ? 'January 2026' : person.roster_year}.
+                        {person.roster_year < 2026 && (
+                          <> This person did not appear on the latest (January 2026) roster.</>
+                        )}
+                        <br />
+                      </>
+                    ) : (
+                      <>
+                        No current roster data on file for this person.
+                        <br />
+                      </>
+                    )}
+                    {person.payroll_year
+                      ? `Payroll data as of ${person.payroll_year}.`
+                      : 'No payroll data available for this record.'}
+                  </>
+                );
+              })()}
             </p>
           </div>
           

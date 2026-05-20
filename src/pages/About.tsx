@@ -39,7 +39,7 @@ const About = () => {
               </p>
               
               <p className="mb-6">
-                Follow <a href="https://bencamacho.com/the-fight-for-public-records" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">a more comprehensive summary</a> of the LAPD headshots saga. You can also <a href="https://bencamacho.com/press" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">read reports about the issue on this page</a>.
+                Follow this link for <a href="https://bencamacho.com/the-fight-for-public-records" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">a more comprehensive summary</a> of the LAPD headshots saga. You can also <a href="https://bencamacho.com/press" target="_blank" rel="noopener noreferrer" className="text-inadvertent-yellow hover:text-inadvertent-yellow-hover underline">read reports about the issue on this page</a>.
               </p>
 
               <h2 className="text-2xl font-bold mb-4 text-inadvertent-yellow">Is this up to date?</h2>
